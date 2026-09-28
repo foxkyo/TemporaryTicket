@@ -1,0 +1,474 @@
+<?php
+
+use App\Models\Station;
+use App\Models\Student;
+use App\Models\TemporaryTicket;
+use App\Models\TemporaryTicketControl;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/students', function () {
+    $gradeOrder = [
+        '國一' => 1,
+        '國二' => 2,
+        '國三' => 3,
+        '高一' => 4,
+        '高二' => 5,
+        '高三' => 6,
+    ];
+
+    $classOrder = [
+        '1' => 1,
+        '2' => 2,
+        '3' => 3,
+        '4' => 4,
+        '5' => 5,
+        '6' => 6,
+        '7' => 7,
+        '8' => 8,
+        '9' => 9,
+        '10' => 10,
+        '甲' => 11,
+        '乙' => 12,
+        '丙' => 13,
+        '丁' => 14,
+        '戊' => 15,
+        '己' => 16,
+        '庚' => 17,
+    ];
+
+    $students = Student::query()
+        ->orderBy('座號')
+        ->get();
+
+    $result = [];
+
+    foreach ($students as $student) {
+        $grade = mb_substr($student->班級, 0, 2);
+        $class = mb_substr($student->班級, 2);
+
+        $result[$grade]['classes'][$class]['students'][] = [
+            'id' => $student->id,
+            '學號' => $student->學號,
+            '班級' => $student->班級,
+            '座號' => $student->座號,
+            '姓名' => $student->姓名,
+        ];
+    }
+
+    uksort($result, function ($a, $b) use ($gradeOrder) {
+        return ($gradeOrder[$a] ?? 999) <=> ($gradeOrder[$b] ?? 999);
+    });
+
+    foreach ($result as $grade => &$gradeData) {
+        uksort($gradeData['classes'], function ($a, $b) use ($classOrder) {
+            return ($classOrder[$a] ?? 999) <=> ($classOrder[$b] ?? 999);
+        });
+    }
+
+    return response()->json(
+        collect($result)->map(function ($gradeData, $grade) {
+            return [
+                'grade' => $grade,
+                'classes' => collect($gradeData['classes'])
+                    ->map(function ($classData, $class) {
+                        return [
+                            'class' => $class,
+                            'students' => $classData['students'],
+                        ];
+                    })
+                    ->values()
+                    ->all(),
+            ];
+        })->values()
+    );
+});
+
+Route::get('/stations', function () {
+    $stations = Station::query()
+        ->orderBy('id')
+        ->get();
+
+    if ($stations->isEmpty()) {
+        return response()->json([]);
+    }
+
+    $vehicles = [];
+    $stationsByVehicle = [];
+    $vehicleOrder = [];
+
+    foreach ($stations as $station) {
+        $vehicle = $station->車別;
+
+        if (!isset($vehicles[$vehicle])) {
+            $vehicles[$vehicle] = [
+                'vehicle' => $vehicle,
+                'capacity' => (int) ($station->人數上限 ?? 0),
+                '上學' => [
+                    'student_count' => 0,
+                    'temporary_ticket_count' => 0,
+                    'total' => 0,
+                    'remaining' => 0,
+                    'status' => 'normal',
+                    '管制' => false,
+                ],
+                '放學' => [
+                    'student_count' => 0,
+                    'temporary_ticket_count' => 0,
+                    'total' => 0,
+                    'remaining' => 0,
+                    'status' => 'normal',
+                    '管制' => false,
+                ],
+            ];
+
+            $vehicleOrder[$vehicle] = (int) $station->id;
+        }
+
+        $stationsByVehicle[$vehicle][] = [
+            'id' => $station->id,
+            'station' => $station->站別,
+            'boarding' => $station->乘車處,
+            'one_way_amount' => (int) $station->單趟金額,
+            'one_month_amount' => (int) $station->單月金額,
+            'vehicle' => $vehicle,
+        ];
+
+        $vehicles[$vehicle]['上學']['student_count'] += (int) ($station->上學人數 ?? 0);
+        $vehicles[$vehicle]['放學']['student_count'] += (int) ($station->放學人數 ?? 0);
+    }
+
+    $vehicleNames = array_keys($vehicles);
+
+    $temporaryTickets = TemporaryTicket::query()
+        ->whereIn('車別', $vehicleNames)
+        ->get([
+            '車別',
+            '時段',
+        ]);
+
+    $temporaryTicketCounts = [];
+
+    foreach ($temporaryTickets as $ticket) {
+        $periods = is_array($ticket->時段)
+            ? $ticket->時段
+            : json_decode($ticket->時段, true);
+
+        if (!is_array($periods)) {
+            continue;
+        }
+
+        foreach ($periods as $period) {
+            if (!in_array($period, ['上學', '放學'], true)) {
+                continue;
+            }
+
+            $temporaryTicketCounts[$ticket->車別][$period] =
+                ($temporaryTicketCounts[$ticket->車別][$period] ?? 0) + 1;
+        }
+    }
+
+    $controls = TemporaryTicketControl::query()
+        ->whereIn('車別', $vehicleNames)
+        ->get()
+        ->keyBy('車別');
+
+    $result = [];
+
+    foreach ($vehicles as $vehicle => $data) {
+        $capacity = $data['capacity'];
+        $morningTotal = $data['上學']['student_count'] + ($temporaryTicketCounts[$vehicle]['上學'] ?? 0);
+        $afternoonTotal = $data['放學']['student_count'] + ($temporaryTicketCounts[$vehicle]['放學'] ?? 0);
+        $control = $controls->get($vehicle);
+
+        $data['上學']['temporary_ticket_count'] = $temporaryTicketCounts[$vehicle]['上學'] ?? 0;
+        $data['上學']['total'] = $morningTotal;
+        $data['上學']['remaining'] = max(0, $capacity - $morningTotal);
+        $data['上學']['status'] = $morningTotal > $capacity
+            ? 'danger'
+            : ($data['上學']['remaining'] <= 3 ? 'warning' : 'normal');
+        $data['上學']['管制'] = (bool) ($control?->上學管制 ?? false);
+
+        $data['放學']['temporary_ticket_count'] = $temporaryTicketCounts[$vehicle]['放學'] ?? 0;
+        $data['放學']['total'] = $afternoonTotal;
+        $data['放學']['remaining'] = max(0, $capacity - $afternoonTotal);
+        $data['放學']['status'] = $afternoonTotal > $capacity
+            ? 'danger'
+            : ($data['放學']['remaining'] <= 3 ? 'warning' : 'normal');
+        $data['放學']['管制'] = (bool) ($control?->放學管制 ?? false);
+
+        $data['stations'] = $stationsByVehicle[$vehicle] ?? [];
+
+        $result[] = $data;
+    }
+
+    usort($result, function ($a, $b) use ($vehicleOrder) {
+        return ($vehicleOrder[$a['vehicle']] ?? PHP_INT_MAX)
+            <=> ($vehicleOrder[$b['vehicle']] ?? PHP_INT_MAX);
+    });
+
+    $areas = [
+        '嘉義縣市' => [],
+        '其他' => [],
+    ];
+
+    foreach ($result as $vehicle) {
+        $area = mb_substr($vehicle['vehicle'], 0, 1) === '嘉'
+            ? '嘉義縣市'
+            : '其他';
+
+        $areas[$area][] = $vehicle;
+    }
+
+    return response()->json([
+        [
+            'area' => '嘉義縣市',
+            'vehicles' => $areas['嘉義縣市'],
+        ],
+        [
+            'area' => '其他',
+            'vehicles' => $areas['其他'],
+        ],
+    ]);
+});
+
+Route::get('/stations/availability', function () {
+    $stations = Station::query()
+        ->orderBy('id')
+        ->get();
+
+    if ($stations->isEmpty()) {
+        return response()->json([]);
+    }
+
+    /*
+     * 每台車以第一筆 station 的「人數上限」作為容量。
+     */
+    $vehicles = [];
+
+    foreach ($stations as $station) {
+        $vehicle = $station->車別;
+
+        if (!isset($vehicles[$vehicle])) {
+            $vehicles[$vehicle] = [
+                'first_id' => $station->id,
+                'vehicle' => $vehicle,
+                'capacity' => (int) $station->人數上限,
+                '上學人數' => 0,
+                '放學人數' => 0,
+            ];
+        }
+
+        /*
+         * stations 的人數是各站別人數，因此同車別加總。
+         */
+        $vehicles[$vehicle]['上學人數'] += (int) $station->上學人數;
+        $vehicles[$vehicle]['放學人數'] += (int) $station->放學人數;
+    }
+
+    /*
+     * 取得所有車別的臨時票。
+     */
+    $vehicleNames = collect($vehicles)
+        ->pluck('vehicle')
+        ->values();
+
+    $temporaryTickets = TemporaryTicket::query()
+        ->whereIn('車別', $vehicleNames)
+        ->get([
+            '車別',
+            '時段',
+        ]);
+
+    $temporaryTicketCounts = [];
+
+    foreach ($temporaryTickets as $ticket) {
+        $periods = is_array($ticket->時段)
+            ? $ticket->時段
+            : json_decode($ticket->時段, true);
+
+        if (!is_array($periods)) {
+            continue;
+        }
+
+        foreach ($periods as $period) {
+            if (!in_array($period, ['上學', '放學'], true)) {
+                continue;
+            }
+
+            $temporaryTicketCounts[$ticket->車別][$period] =
+                ($temporaryTicketCounts[$ticket->車別][$period] ?? 0) + 1;
+        }
+    }
+
+    /*
+     * 取得車別管制狀態。
+     */
+    $controls = TemporaryTicketControl::query()
+        ->whereIn('車別', $vehicleNames)
+        ->get()
+        ->keyBy('車別');
+
+    $result = [];
+
+    foreach ($vehicles as $vehicle => $data) {
+        $capacity = $data['capacity'];
+
+        $morningTemporary =
+            $temporaryTicketCounts[$vehicle]['上學'] ?? 0;
+
+        $afternoonTemporary =
+            $temporaryTicketCounts[$vehicle]['放學'] ?? 0;
+
+        $morningTotal =
+            $data['上學人數'] + $morningTemporary;
+
+        $afternoonTotal =
+            $data['放學人數'] + $afternoonTemporary;
+
+        $control = $controls->get($vehicle);
+
+        $morningRemaining = $capacity - $morningTotal;
+        $afternoonRemaining = $capacity - $afternoonTotal;
+
+        $result[] = [
+            'vehicle' => $vehicle,
+            'capacity' => $capacity,
+
+            '上學' => [
+                'student_count' => $data['上學人數'],
+                'temporary_ticket_count' => $morningTemporary,
+                'total' => $morningTotal,
+                'remaining' => max(0, $morningRemaining),
+
+                /*
+                 * danger：超過上限
+                 * warning：距離上限 3 人以內
+                 * normal：其他
+                 */
+                'status' => $morningTotal > $capacity
+                    ? 'danger'
+                    : ($morningRemaining <= 3
+                        ? 'warning'
+                        : 'normal'),
+
+                '管制' => (bool) ($control?->上學管制 ?? false),
+            ],
+
+            '放學' => [
+                'student_count' => $data['放學人數'],
+                'temporary_ticket_count' => $afternoonTemporary,
+                'total' => $afternoonTotal,
+                'remaining' => max(0, $afternoonRemaining),
+
+                'status' => $afternoonTotal > $capacity
+                    ? 'danger'
+                    : ($afternoonRemaining <= 3
+                        ? 'warning'
+                        : 'normal'),
+
+                '管制' => (bool) ($control?->放學管制 ?? false),
+            ],
+        ];
+    }
+
+    /*
+     * 依原本 stations 第一筆 id 排序。
+     */
+    usort($result, function ($a, $b) use ($vehicles) {
+        return $vehicles[$a['vehicle']]['first_id']
+            <=> $vehicles[$b['vehicle']]['first_id'];
+    });
+
+    /*
+     * 嘉義縣市 / 其他。
+     */
+    $areas = [
+        '嘉義縣市' => [],
+        '其他' => [],
+    ];
+
+    foreach ($result as $vehicle) {
+        $area = mb_substr($vehicle['vehicle'], 0, 1) === '嘉'
+            ? '嘉義縣市'
+            : '其他';
+
+        $areas[$area][] = $vehicle;
+    }
+
+    return response()->json([
+        [
+            'area' => '嘉義縣市',
+            'vehicles' => $areas['嘉義縣市'],
+        ],
+        [
+            'area' => '其他',
+            'vehicles' => $areas['其他'],
+        ],
+    ]);
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| Temporary Ticket Controls
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/temporary-ticket-controls', function () {
+    $stations = Station::query()
+        ->orderBy('id')
+        ->get();
+
+    $controls = TemporaryTicketControl::query()
+        ->get()
+        ->keyBy('車別');
+
+    $vehicles = [];
+
+    foreach ($stations as $station) {
+        $vehicle = $station->車別;
+
+        if (isset($vehicles[$vehicle])) {
+            continue;
+        }
+
+        $control = $controls->get($vehicle);
+
+        $vehicles[$vehicle] = [
+            'vehicle' => $vehicle,
+            'capacity' => (int) $station->人數上限,
+            '上學管制' => (bool) ($control?->上學管制 ?? false),
+            '放學管制' => (bool) ($control?->放學管制 ?? false),
+        ];
+    }
+
+    return response()->json(
+        collect($vehicles)->values()
+    );
+});
+
+
+Route::put('/temporary-ticket-controls/{vehicle}', function (
+    string $vehicle
+) {
+    $data = request()->validate([
+        '上學管制' => ['required', 'boolean'],
+        '放學管制' => ['required', 'boolean'],
+    ]);
+
+    $control = TemporaryTicketControl::updateOrCreate(
+        [
+            '車別' => $vehicle,
+        ],
+        [
+            '上學管制' => $data['上學管制'],
+            '放學管制' => $data['放學管制'],
+        ],
+    );
+
+    return response()->json([
+        'vehicle' => $control->車別,
+        '上學管制' => (bool) $control->上學管制,
+        '放學管制' => (bool) $control->放學管制,
+    ]);
+});
