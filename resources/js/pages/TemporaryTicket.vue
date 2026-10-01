@@ -1,4 +1,5 @@
 <script setup>
+import axios from 'axios';
 import { computed, onMounted, ref } from 'vue';
 import { Check, Ticket, Trash2 } from 'lucide-vue-next';
 
@@ -110,11 +111,37 @@ const selectionSummary = computed(() => {
     return `${studentDisplayName.value} · ${selectedStation.value.station}`;
 });
 
-const confirmTicket = () => {
-    console.log({
-        student: selectedStudent.value,
-        station: selectedStation.value,
-    });
+const confirmTicket = async () => {
+    const tickets = addedRows.value
+        .filter((row) => !isBlankRow(row))
+        .filter((row) => rowCheckState(row, addedRows.value) === 'valid');
+
+    if (!tickets.length || totalTicketAmount.value <= 0) {
+        showToast('沒有可儲存的票資料');
+        return;
+    }
+
+    try {
+        const { data } = await axios.post('/api/temporary-tickets', {
+            tickets: tickets.map((row) => ({
+                student: row.student,
+                station: row.station,
+                date: row.date,
+                periods: row.periods,
+                amount: getRowTicketAmount(row),
+            })),
+        });
+
+        showToast(`已儲存 ${data.saved ?? tickets.length} 筆資料`);
+        resetToFreshRow();
+    } catch (error) {
+        const message =
+            error?.response?.data?.message ||
+            error?.response?.data?.error ||
+            '儲存失敗';
+
+        showToast(message);
+    }
 };
 
 const clearSelection = () => {
@@ -130,7 +157,13 @@ const handleTripCheck = () => {
 };
 
 const canConfirm = computed(() => {
-    return Boolean(selectedStudent.value && selectedStation.value);
+    const rows = addedRows.value.filter((row) => !isBlankRow(row));
+
+    if (!rows.length || totalTicketAmount.value <= 0) {
+        return false;
+    }
+
+    return countInvalidRows(rows, (row) => rowCheckState(row, rows)) === 0;
 });
 
 const canCheck = computed(() => {
@@ -196,6 +229,60 @@ const getStateSummary = (rows = addedRows.value) => {
 const canClearSelection = computed(() => {
     return addedRows.value.some((row) => !isBlankRow(row));
 });
+
+const validRows = computed(() => {
+    return addedRows.value.filter(
+        (row) =>
+            !isBlankRow(row) && rowCheckState(row, addedRows.value) === 'valid',
+    );
+});
+
+function getRowTicketAmount(row) {
+    if (!row?.station || !row?.student) {
+        return 0;
+    }
+
+    const pricePerTrip = Number(row.station?.one_way_amount ?? 0);
+    const tripCount = Array.isArray(row.periods) ? row.periods.length : 0;
+
+    return pricePerTrip * Math.max(tripCount, 1);
+}
+
+function getStudentPriceSummary(rows = []) {
+    const grouped = new Map();
+
+    rows.forEach((row) => {
+        if (!row?.student || rowCheckState(row, rows) !== 'valid') {
+            return;
+        }
+
+        const studentKey =
+            `${row.student.班級 ?? ''} ${row.student.姓名 ?? ''}`.trim();
+        const studentName = studentKey || '未知學生';
+        const subtotal = getRowTicketAmount(row);
+
+        grouped.set(studentName, (grouped.get(studentName) ?? 0) + subtotal);
+    });
+
+    return Array.from(grouped.entries()).map(([student, total]) => ({
+        student,
+        total,
+    }));
+}
+
+const studentPriceSummary = computed(() => {
+    return getStudentPriceSummary(validRows.value);
+});
+
+const totalTicketAmount = computed(() => {
+    return studentPriceSummary.value.reduce((sum, item) => sum + item.total, 0);
+});
+
+function formatCurrency(value) {
+    const amount = Number(value ?? 0);
+
+    return `NT$ ${amount.toLocaleString('zh-TW')}`;
+}
 
 function getEffectiveRemainingForRow(row, rows = addedRows.value) {
     if (!row.date || !row.periods?.length || !row.station) {
@@ -325,6 +412,64 @@ function getGeneratedDateForIndex(baseDate, index, lastGeneratedDate = null) {
     return formatDateValue(candidate);
 }
 
+function applyBatchAddSequentially(row, count) {
+    const addCount = Number.isFinite(Number(count))
+        ? Math.max(1, Number(count))
+        : 1;
+    const generatedRows = [];
+    const baseRows = [...addedRows.value];
+    let lastGeneratedDate = baseRows.at(-1)?.date ?? null;
+
+    for (let step = 0; step < addCount; step += 1) {
+        const nextRow = cloneRowTemplate(row);
+        nextRow.date = getGeneratedDateForIndex(
+            row.date,
+            step,
+            lastGeneratedDate,
+        );
+
+        const candidateRows = [...baseRows, ...generatedRows, nextRow];
+        const nextState = rowCheckState(nextRow, candidateRows);
+        const { invalidCount } = getStateSummary(candidateRows);
+
+        console.log('[ticket-check]', {
+            index: step,
+            date: nextRow.date,
+            vehicle: nextRow.station?.vehicle ?? '未知車別',
+            periods: nextRow.periods,
+            nextState,
+            invalidCount,
+        });
+
+        if (invalidCount >= 2) {
+            showToast('已達 2 筆負餘票，無法再新增');
+            break;
+        }
+
+        generatedRows.push(nextRow);
+        lastGeneratedDate = nextRow.date;
+
+        if (nextState !== 'valid') {
+            showToast(
+                `${nextRow.date} ${nextRow.periods.join(' / ')} ${nextRow.station?.vehicle ?? '未知車別'} 已加入，但需確認剩餘票`,
+            );
+        }
+    }
+
+    if (!generatedRows.length) {
+        return;
+    }
+
+    addedRows.value = [...baseRows, ...generatedRows];
+
+    const firstRow = generatedRows[0];
+    const periodText = firstRow.periods.join(' / ');
+    const vehicleText = firstRow.station?.vehicle ?? '未知車別';
+    showToast(
+        `${firstRow.date} ${periodText} ${vehicleText} 已加入 ${generatedRows.length} 筆`,
+    );
+}
+
 function addSelectedRows(count) {
     const row = currentDraftRow.value;
 
@@ -338,59 +483,7 @@ function addSelectedRows(count) {
         return;
     }
 
-    const addCount = Number.isFinite(Number(count))
-        ? Math.max(1, Number(count))
-        : 1;
-    const generatedRows = [];
-
-    for (let step = 0; step < addCount; step += 1) {
-        const nextRow = cloneRowTemplate(row);
-        const previousGeneratedDate = generatedRows.at(-1)?.date ?? null;
-        nextRow.date = getGeneratedDateForIndex(
-            row.date,
-            step,
-            previousGeneratedDate,
-        );
-
-        const combinedRows = [...addedRows.value, ...generatedRows, nextRow];
-        const nextState = rowCheckState(nextRow, combinedRows);
-        const { invalidCount } = getStateSummary(combinedRows);
-
-        console.log('[ticket-check]', {
-            index: step,
-            date: nextRow.date,
-            vehicle: nextRow.station?.vehicle ?? '未知車別',
-            periods: nextRow.periods,
-            nextState,
-            invalidCount,
-        });
-
-        if (invalidCount >= 2) {
-            showToast('已達 2 筆負餘票，無法再新增');
-            return;
-        }
-
-        generatedRows.push(nextRow);
-
-        if (nextState !== 'valid') {
-            showToast(
-                `${nextRow.date} ${nextRow.periods.join(' / ')} ${nextRow.station?.vehicle ?? '未知車別'} 已加入，但需確認剩餘票`,
-            );
-        }
-    }
-
-    if (!generatedRows.length) {
-        return;
-    }
-
-    addedRows.value = [...addedRows.value, ...generatedRows];
-
-    const firstRow = generatedRows[0];
-    const periodText = firstRow.periods.join(' / ');
-    const vehicleText = firstRow.station?.vehicle ?? '未知車別';
-    showToast(
-        `${firstRow.date} ${periodText} ${vehicleText} 已加入 ${generatedRows.length} 筆`,
-    );
+    applyBatchAddSequentially(row, count);
 }
 
 function removeAddedRow(rowId) {
@@ -498,7 +591,7 @@ function removeAddedRow(rowId) {
                                     v-for="option in [
                                         {
                                             key: 'sameDate',
-                                            label: '日期不變',
+                                            label: '日期固定',
                                         },
                                         {
                                             key: 'incrementDate',
@@ -506,7 +599,7 @@ function removeAddedRow(rowId) {
                                         },
                                         {
                                             key: 'fixedWeekday',
-                                            label: '固定星期',
+                                            label: '星期固定',
                                         },
                                     ]"
                                     :key="option.key"
@@ -603,8 +696,48 @@ function removeAddedRow(rowId) {
                 </footer>
             </div>
 
-            <div class="w-1/2 border-l bg-muted/20 p-4">
-                <div class="flex h-full items-start justify-center">右邊</div>
+            <div class="relative w-1/2 border-l bg-muted/20 p-4">
+                <div
+                    v-if="validRows.length"
+                    class="absolute top-4 right-4 w-72"
+                >
+                    <div
+                        class="rounded-lg border bg-background/90 p-3 shadow-sm backdrop-blur-sm"
+                    >
+                        <div class="mb-2 flex items-center justify-between">
+                            <span
+                                class="text-xs font-medium text-muted-foreground"
+                            >
+                                購票價格
+                            </span>
+                            <span class="text-xs font-semibold text-foreground">
+                                總計 {{ formatCurrency(totalTicketAmount) }}
+                            </span>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div
+                                v-for="item in studentPriceSummary"
+                                :key="item.student"
+                                class="flex items-center justify-between gap-3 text-sm"
+                            >
+                                <span class="truncate text-foreground">
+                                    {{ item.student }}
+                                </span>
+                                <span class="shrink-0 font-medium tabular-nums">
+                                    {{ formatCurrency(item.total) }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div
+                    v-else
+                    class="flex h-full items-center justify-center text-sm text-muted-foreground"
+                >
+                    尚未有可計算票價
+                </div>
             </div>
         </div>
 

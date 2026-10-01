@@ -62,3 +62,61 @@ it('returns grouped station data for the selector', function () {
         ->assertJsonPath('0.vehicles.0.上學.total', 27)
         ->assertJsonPath('0.vehicles.0.放學.total', 18);
 });
+
+it('stores valid temporary ticket rows when the user confirms', function () {
+    $station = Station::create([
+        '車別' => '嘉義A1',
+        '站別' => '中山站',
+        '乘車處' => '中山路',
+        '單趟金額' => 120,
+        '單月金額' => 360,
+        '上學人數' => 12,
+        '放學人數' => 8,
+        '已繳款人數' => 4,
+        '未繳款人數' => 2,
+    ]);
+
+    Student::create([
+        '學號' => '001',
+        '班級' => '國一1',
+        '座號' => 1,
+        '姓名' => '小明',
+    ]);
+
+    $response = $this->postJson('/api/temporary-tickets', [
+        'tickets' => [[
+            'student' => [
+                '學號' => '001',
+                '班級' => '國一1',
+                '座號' => 1,
+                '姓名' => '小明',
+            ],
+            'station' => [
+                'id' => $station->id,
+                'vehicle' => '嘉義A1',
+                'station' => '中山站',
+                'one_way_amount' => 120,
+            ],
+            'date' => '2026-10-01',
+            'periods' => ['放學'],
+            'amount' => 120,
+        ]],
+    ]);
+
+    $response
+        ->assertCreated()
+        ->assertJsonPath('saved', 1)
+        ->assertJsonPath('tickets.0.姓名', '小明');
+
+    $this->assertDatabaseHas('temporary_tickets', [
+        '學號' => '001',
+        '班級' => '國一1',
+        '座號' => '1',
+        '姓名' => '小明',
+        '日期' => '2026-10-01 00:00:00',
+        '星期' => '四',
+        '車別' => '嘉義A1',
+        '站別' => '中山站',
+        '金額' => 120,
+    ]);
+});

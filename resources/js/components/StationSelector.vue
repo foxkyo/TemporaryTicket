@@ -357,6 +357,14 @@ const selectedLabel = computed(() => {
     return station || '選擇站別';
 });
 
+const selectedAmount = computed(() => {
+    if (!props.modelValue) {
+        return '';
+    }
+
+    return formatPrice(props.modelValue.one_way_amount ?? 0);
+});
+
 const canSelectStation = computed(() => {
     return activePeriods.value.length > 0 && selectedVehicle.value !== null;
 });
@@ -386,15 +394,23 @@ watch(
     <Button
         type="button"
         variant="outline"
-        class="w-64 justify-between"
+        class="w-64 justify-between gap-2"
         :class="!modelValue ? 'border-red-500 ring-2 ring-red-500/20' : ''"
         @click="openSelector"
     >
-        <span class="truncate text-left">
+        <span class="min-w-0 truncate text-left">
             {{ selectedLabel }}
         </span>
 
-        <ChevronRight class="ml-2 size-4 shrink-0 opacity-50" />
+        <div class="flex shrink-0 items-center gap-2">
+            <span
+                v-if="selectedAmount"
+                class="text-sm font-semibold tabular-nums"
+            >
+                {{ selectedAmount }}
+            </span>
+            <ChevronRight class="size-4 shrink-0 opacity-50" />
+        </div>
     </Button>
 
     <Dialog v-model:open="open">

@@ -23,7 +23,7 @@ const props = defineProps({
     checkState: {
         type: String,
         default: 'valid',
-        validator: (value) => ['valid', 'invalid'].includes(value),
+        validator: (value) => ['valid', 'invalid', 'disabled'].includes(value),
     },
     showDelete: {
         type: Boolean,

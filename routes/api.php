@@ -5,6 +5,7 @@ use App\Models\Student;
 use App\Models\TemporaryTicket;
 use App\Models\TemporaryTicketControl;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 
 Route::get('/students', function () {
     $gradeOrder = [
@@ -447,6 +448,82 @@ Route::get('/temporary-ticket-controls', function () {
     );
 });
 
+
+Route::post('/temporary-tickets', function () {
+    $payload = request()->validate([
+        'tickets' => ['required', 'array', 'min:1'],
+        'tickets.*.student' => ['required', 'array'],
+        'tickets.*.student.學號' => ['required', 'string'],
+        'tickets.*.student.班級' => ['required', 'string'],
+        'tickets.*.student.座號' => ['required'],
+        'tickets.*.student.姓名' => ['required', 'string'],
+        'tickets.*.station' => ['required', 'array'],
+        'tickets.*.station.vehicle' => ['required', 'string'],
+        'tickets.*.station.station' => ['required', 'string'],
+        'tickets.*.date' => ['required', 'date_format:Y-m-d'],
+        'tickets.*.periods' => ['required', 'array'],
+        'tickets.*.periods.*' => ['required', 'string'],
+        'tickets.*.amount' => ['required', 'numeric', 'min:0'],
+    ]);
+
+    $saved = [];
+
+    foreach ($payload['tickets'] as $ticket) {
+        $student = $ticket['student'];
+        $stationPayload = $ticket['station'];
+        $periods = array_values(array_unique($ticket['periods']));
+
+        if ($periods === []) {
+            continue;
+        }
+
+        $station = Station::query()
+            ->where('車別', $stationPayload['vehicle'])
+            ->where('站別', $stationPayload['station'])
+            ->first();
+
+        if (! $station) {
+            throw new InvalidArgumentException('找不到對應站別');
+        }
+
+        $date = Carbon\Carbon::parse($ticket['date']);
+        $weekday = ['日', '一', '二', '三', '四', '五', '六'][$date->dayOfWeek];
+
+        $record = TemporaryTicket::create([
+            '學號' => (string) $student['學號'],
+            '班級' => (string) $student['班級'],
+            '座號' => (string) $student['座號'],
+            '姓名' => (string) $student['姓名'],
+            '日期' => $date->toDateString(),
+            '星期' => $weekday,
+            '時段' => $periods,
+            'station_id' => $station->id,
+            '車別' => $station->車別,
+            '站別' => $station->站別,
+            'barcode' => (string) Str::uuid(),
+            '金額' => (int) $ticket['amount'],
+        ]);
+
+        $saved[] = [
+            'id' => $record->id,
+            '學號' => $record->學號,
+            '班級' => $record->班級,
+            '座號' => $record->座號,
+            '姓名' => $record->姓名,
+            '日期' => $record->日期->format('Y-m-d'),
+            '星期' => $record->星期,
+            '時段' => $record->時段,
+            '車別' => $record->車別,
+            '站別' => $record->站別,
+            '金額' => $record->金額,
+        ];
+    }
+
+    return response()->json([
+        'saved' => count($saved),
+        'tickets' => $saved,
+    ], 201);
+});
 
 Route::put('/temporary-ticket-controls/{vehicle}', function (
     string $vehicle
