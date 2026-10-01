@@ -5,6 +5,7 @@ import { Check, Ticket, Trash2 } from 'lucide-vue-next';
 
 import StudentSelector from '@/components/StudentSelector.vue';
 import StationSelector from '@/components/StationSelector.vue';
+import Tickets from '@/components/Tickets.vue';
 import TripActionGroup from '@/components/TripActionGroup.vue';
 import TripDateSelector from '@/components/TripDateSelector.vue';
 import TripPeriodButtonGroup from '@/components/TripPeriodButtonGroup.vue';
@@ -132,6 +133,8 @@ const confirmTicket = async () => {
             })),
         });
 
+        savedTickets.value = data.tickets ?? [];
+        previewVisible.value = true;
         showToast(`已儲存 ${data.saved ?? tickets.length} 筆資料`);
         resetToFreshRow();
     } catch (error) {
@@ -142,6 +145,131 @@ const confirmTicket = async () => {
 
         showToast(message);
     }
+};
+
+const savedTickets = ref([]);
+const previewVisible = ref(false);
+
+const openPreview = () => {
+    if (savedTickets.value.length) {
+        previewVisible.value = true;
+    }
+};
+
+const closePreview = () => {
+    previewVisible.value = false;
+};
+
+const printPreview = () => {
+    // 關閉預覽後直接列印
+    closePreview();
+    window.print();
+};
+
+const resolveAutoAppliedStation = async (ticket) => {
+    const fallbackStation = {
+        id: ticket?.station?.id ?? null,
+        vehicle: ticket?.車別 ?? ticket?.station?.vehicle ?? null,
+        station: ticket?.站別 ?? ticket?.station?.station ?? null,
+        boarding: ticket?.station?.boarding ?? null,
+        one_way_amount: Number(ticket?.station?.one_way_amount ?? 0),
+        one_month_amount: Number(ticket?.station?.one_month_amount ?? 0),
+        periods: Array.isArray(ticket?.時段) ? [...ticket.時段] : [],
+        ...ticket?.station,
+    };
+
+    if (!fallbackStation.vehicle || !fallbackStation.station) {
+        return fallbackStation;
+    }
+
+    try {
+        const { data } = await axios.get('/api/stations');
+        const stationAreas = Array.isArray(data) ? data : [];
+
+        for (const area of stationAreas) {
+            const vehicle = (area?.vehicles ?? []).find(
+                (item) => item?.vehicle === fallbackStation.vehicle,
+            );
+
+            if (!vehicle) {
+                continue;
+            }
+
+            const matchedStation = (vehicle?.stations ?? []).find((item) => {
+                if (fallbackStation.id != null && item?.id != null) {
+                    return Number(item.id) === Number(fallbackStation.id);
+                }
+
+                return (
+                    String(item?.station ?? '') ===
+                        String(fallbackStation.station) &&
+                    String(item?.vehicle ?? '') ===
+                        String(fallbackStation.vehicle)
+                );
+            });
+
+            if (matchedStation) {
+                return {
+                    ...matchedStation,
+                    periods: Array.isArray(ticket?.時段)
+                        ? [...ticket.時段]
+                        : [],
+                    vehicle: matchedStation.vehicle ?? fallbackStation.vehicle,
+                    area: area?.area ?? null,
+                    上學: vehicle.上學,
+                    放學: vehicle.放學,
+                };
+            }
+        }
+    } catch (error) {
+        console.warn('查詢站別資料失敗，使用歷史資料備援', error);
+    }
+
+    return fallbackStation;
+};
+
+const applyLastStudentTicketPreference = async (row) => {
+    if (!row?.student) {
+        return;
+    }
+
+    try {
+        const { data } = await axios.get(
+            '/api/temporary-tickets/latest-for-student',
+            {
+                params: {
+                    學號: row.student.學號,
+                    班級: row.student.班級,
+                    姓名: row.student.姓名,
+                },
+            },
+        );
+
+        const ticket = data?.ticket;
+
+        if (!ticket) {
+            return;
+        }
+
+        if (Array.isArray(ticket.時段) && ticket.時段.length) {
+            row.periods = [...ticket.時段];
+        }
+
+        if (ticket.車別 || ticket.站別 || ticket.station) {
+            row.station = await resolveAutoAppliedStation(ticket);
+        }
+
+        showToast(
+            `已套用 ${row.student.班級} ${row.student.姓名} 的上一筆紀錄`,
+        );
+    } catch (error) {
+        console.warn('查詢學生歷史票資料失敗', error);
+    }
+};
+
+const handleStudentSelected = async (row, value) => {
+    row.student = value;
+    await applyLastStudentTicketPreference(row);
 };
 
 const clearSelection = () => {
@@ -305,7 +433,12 @@ function getEffectiveRemainingForRow(row, rows = addedRows.value) {
     });
 
     const periodValues = row.periods.map((period) => {
-        const rawRemaining = Number(row.station?.[period]?.remaining ?? 0);
+        const periodData = row.station?.[period];
+        const remainingValue = Number(periodData?.remaining ?? NaN);
+
+        if (!periodData || !Number.isFinite(remainingValue)) {
+            return null;
+        }
 
         const matchingSelectedCount = relevantRows.reduce((count, item) => {
             if (!item.periods.includes(period)) {
@@ -315,14 +448,20 @@ function getEffectiveRemainingForRow(row, rows = addedRows.value) {
             return count + 1;
         }, 0);
 
-        return rawRemaining - matchingSelectedCount;
+        return remainingValue - matchingSelectedCount;
     });
 
     if (!periodValues.length) {
         return null;
     }
 
-    return Math.min(...periodValues);
+    const finiteValues = periodValues.filter((value) => value !== null);
+
+    if (!finiteValues.length) {
+        return null;
+    }
+
+    return Math.min(...finiteValues);
 }
 
 function rowRemainingValue(row) {
@@ -337,7 +476,7 @@ function rowCheckState(row, rows = addedRows.value) {
     const effectiveRemaining = getEffectiveRemainingForRow(row, rows);
 
     if (effectiveRemaining === null) {
-        return 'disabled';
+        return 'valid';
     }
 
     return effectiveRemaining < 0 ? 'invalid' : 'valid';
@@ -495,7 +634,7 @@ function removeAddedRow(rowId) {
     <div class="flex h-screen flex-col overflow-hidden bg-background">
         <div
             v-if="toastVisible"
-            class="pointer-events-none fixed top-4 right-4 z-50 max-w-sm rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-lg dark:border-red-900 dark:bg-red-950/80 dark:text-red-200"
+            class="pointer-events-none fixed top-4 right-4 z-50 max-w-sm rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-lg dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200"
         >
             {{ toastMessage }}
         </div>
@@ -545,7 +684,16 @@ function removeAddedRow(rowId) {
                                         </span>
                                     </div>
 
-                                    <StudentSelector v-model="row.student" />
+                                    <StudentSelector
+                                        :model-value="row.student"
+                                        @update:modelValue="
+                                            (value) =>
+                                                handleStudentSelected(
+                                                    row,
+                                                    value,
+                                                )
+                                        "
+                                    />
 
                                     <TripDateSelector v-model="row.date" />
 
@@ -737,6 +885,70 @@ function removeAddedRow(rowId) {
                     class="flex h-full items-center justify-center text-sm text-muted-foreground"
                 >
                     尚未有可計算票價
+                </div>
+            </div>
+        </div>
+
+        <div v-if="savedTickets.length" class="border-t bg-white p-4">
+            <div class="flex items-center justify-between gap-3">
+                <h2 class="text-lg font-semibold text-foreground">
+                    臨時車票預覽
+                </h2>
+
+                <div class="flex items-center gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        @click="openPreview"
+                    >
+                        檢視預覽
+                    </Button>
+                </div>
+            </div>
+        </div>
+
+        <div
+            v-if="previewVisible && savedTickets.length"
+            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+        >
+            <div
+                class="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border bg-white shadow-2xl"
+            >
+                <div
+                    class="flex items-center justify-between border-b px-4 py-3"
+                >
+                    <div>
+                        <h3 class="text-lg font-semibold text-slate-900">
+                            臨時車票預覽
+                        </h3>
+                        <p class="text-sm text-slate-500">
+                            共 {{ savedTickets.length }} 筆
+                        </p>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            @click="printPreview"
+                        >
+                            直接列印
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            @click="closePreview"
+                        >
+                            關閉預覽
+                        </Button>
+                    </div>
+                </div>
+
+                <div class="flex-1 overflow-auto bg-slate-100 p-4">
+                    <Tickets :tickets="savedTickets" />
                 </div>
             </div>
         </div>

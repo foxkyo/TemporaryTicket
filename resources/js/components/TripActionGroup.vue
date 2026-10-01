@@ -37,8 +37,14 @@ const isInvalid = computed(() => props.checkState === 'invalid');
 const isValid = computed(() => props.checkState === 'valid');
 
 const remainingDisplay = computed(() => {
-    if (props.remaining === null || Number.isNaN(props.remaining)) {
-        return 'xx';
+    const numericValue = Number(props.remaining);
+
+    if (
+        props.remaining === null ||
+        Number.isNaN(numericValue) ||
+        !Number.isFinite(numericValue)
+    ) {
+        return '—';
     }
 
     return String(props.remaining);
@@ -51,9 +57,12 @@ const checkTitle = computed(() => {
             : '未選擇';
 
     const vehicleText = props.vehicle || '未選擇';
+    const numericValue = Number(props.remaining);
     const remainderText =
-        props.remaining === null || Number.isNaN(props.remaining)
-            ? '已無票可購'
+        props.remaining === null ||
+        Number.isNaN(numericValue) ||
+        !Number.isFinite(numericValue)
+            ? '剩餘票數: 未提供'
             : `剩餘票數: ${remainingDisplay.value}`;
 
     const stateText =

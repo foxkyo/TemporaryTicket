@@ -10,6 +10,28 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue']);
 
+const dateValue = (date) => {
+    const offset = date.getTimezoneOffset();
+    const normalized = new Date(date.getTime() - offset * 60 * 1000);
+
+    return normalized.toISOString().slice(0, 10);
+};
+
+const minDate = computed(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return dateValue(today);
+});
+
+const maxDate = computed(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    today.setDate(today.getDate() + 30);
+
+    return dateValue(today);
+});
+
 const weekdayLabel = computed(() => {
     if (!props.modelValue) {
         return '—';
@@ -47,15 +69,38 @@ const isWeekend = computed(() => {
 });
 
 function handleDateChange(event) {
-    emit('update:modelValue', event.target.value);
+    const nextValue = event.target.value;
+
+    if (!nextValue) {
+        emit('update:modelValue', '');
+        return;
+    }
+
+    const value = new Date(`${nextValue}T00:00:00`);
+    const min = new Date(`${minDate.value}T00:00:00`);
+    const max = new Date(`${maxDate.value}T00:00:00`);
+
+    if (value < min) {
+        emit('update:modelValue', minDate.value);
+        return;
+    }
+
+    if (value > max) {
+        emit('update:modelValue', maxDate.value);
+        return;
+    }
+
+    emit('update:modelValue', nextValue);
 }
 </script>
 
 <template>
-    <div class="flex w-[150px] items-center justify-center gap-1.5">
+    <div class="flex w-[155px] items-center justify-center gap-1.5">
         <input
             :value="modelValue"
             type="date"
+            :min="minDate"
+            :max="maxDate"
             lang="zh-TW"
             class="h-8 w-full min-w-0 rounded-md border bg-background px-2 text-sm focus:ring-2 focus:ring-primary focus:outline-none"
             @input="handleDateChange"

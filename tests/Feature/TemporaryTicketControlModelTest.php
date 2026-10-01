@@ -2,6 +2,7 @@
 
 use App\Models\Station;
 use App\Models\Student;
+use App\Models\TemporaryTicket;
 
 it('resolves the temporary ticket control model class', function () {
     expect(class_exists(\App\Models\TemporaryTicketControl::class))->toBeTrue();
@@ -61,6 +62,58 @@ it('returns grouped station data for the selector', function () {
         ->assertJsonPath('0.vehicles.0.stations.0.one_way_amount', 120)
         ->assertJsonPath('0.vehicles.0.上學.total', 27)
         ->assertJsonPath('0.vehicles.0.放學.total', 18);
+});
+
+it('returns the latest ticket record for the selected student so the form can prefill period and station', function () {
+    $station = Station::create([
+        '車別' => '嘉義A1',
+        '站別' => '中山站',
+        '乘車處' => '中山路',
+        '單趟金額' => 120,
+        '單月金額' => 360,
+        '上學人數' => 12,
+        '放學人數' => 8,
+        '已繳款人數' => 4,
+        '未繳款人數' => 2,
+    ]);
+
+    TemporaryTicket::create([
+        '學號' => '001',
+        '班級' => '國一1',
+        '座號' => '1',
+        '姓名' => '小明',
+        '日期' => '2026-09-30',
+        '星期' => '三',
+        '時段' => ['上學'],
+        'station_id' => $station->id,
+        '車別' => '嘉義A1',
+        '站別' => '中山站',
+        'barcode' => 'old-ticket',
+        '金額' => 120,
+    ]);
+
+    TemporaryTicket::create([
+        '學號' => '001',
+        '班級' => '國一1',
+        '座號' => '1',
+        '姓名' => '小明',
+        '日期' => '2026-10-01',
+        '星期' => '四',
+        '時段' => ['放學'],
+        'station_id' => $station->id,
+        '車別' => '嘉義A1',
+        '站別' => '中山站',
+        'barcode' => 'latest-ticket',
+        '金額' => 120,
+    ]);
+
+    $response = $this->getJson('/api/temporary-tickets/latest-for-student?學號=001&班級=國一1&姓名=小明');
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('ticket.時段.0', '放學')
+        ->assertJsonPath('ticket.車別', '嘉義A1')
+        ->assertJsonPath('ticket.站別', '中山站');
 });
 
 it('stores valid temporary ticket rows when the user confirms', function () {

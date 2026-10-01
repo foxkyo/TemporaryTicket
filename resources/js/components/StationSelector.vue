@@ -215,7 +215,12 @@ function getSelectedUsageForVehicle(vehicle, period) {
 
 function getAdjustedPeriodRemaining(vehicle, period) {
     const data = getVehiclePeriodData(vehicle, period);
-    const baseRemaining = Number(data?.remaining ?? 0);
+
+    if (!data || !Number.isFinite(Number(data.remaining))) {
+        return null;
+    }
+
+    const baseRemaining = Number(data.remaining);
     const selectedUsage = getSelectedUsageForVehicle(vehicle, period);
 
     return Math.max(baseRemaining - selectedUsage, 0);
@@ -252,7 +257,7 @@ function vehicleRemainingTickets(vehicle) {
 
     const values = activePeriods.value
         .map((period) => getAdjustedPeriodRemaining(vehicle, period))
-        .filter((value) => value !== null);
+        .filter((value) => value !== null && Number.isFinite(value));
 
     if (!values.length) {
         return null;

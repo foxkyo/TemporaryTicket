@@ -10,8 +10,8 @@ export function countInvalidRows(rows = [], rowCheckState = () => 'valid') {
 
 export function canAllowDraftAdd(
     draftRow,
-    _rows = [],
-    _rowCheckState = () => 'valid',
+    rows = [],
+    rowCheckState = () => 'valid',
 ) {
     if (
         !draftRow ||
@@ -23,7 +23,16 @@ export function canAllowDraftAdd(
         return false;
     }
 
-    // Allow adding the draft row regardless of invalid counts.
-    // The component will decide how to persist invalid rows.
+    const invalidCount = countInvalidRows(rows, rowCheckState);
+    const draftState = rowCheckState(draftRow);
+
+    if (invalidCount >= 2) {
+        return false;
+    }
+
+    if (draftState === 'invalid' && invalidCount >= 1) {
+        return false;
+    }
+
     return true;
 }

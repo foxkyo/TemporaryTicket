@@ -31,6 +31,20 @@ class TemporaryTicket extends Model
         ];
     }
 
+
+    public function set時段Attribute($value)
+    {
+        $this->attributes['時段'] = json_encode($value, 320);
+    }
+
+    public function get時段Attribute($value)
+    {
+        if ($value === null) {
+            return null;
+        }
+        return json_decode($value, 320);
+    }
+
     public function station(): BelongsTo
     {
         return $this->belongsTo(Station::class);

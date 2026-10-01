@@ -84,6 +84,55 @@ Route::get('/students', function () {
     );
 });
 
+Route::get('/temporary-tickets/latest-for-student', function () {
+    $query = request()->validate([
+        '學號' => ['required', 'string'],
+        '班級' => ['required', 'string'],
+        '姓名' => ['required', 'string'],
+    ]);
+
+    $ticket = TemporaryTicket::query()
+        ->with('station')
+        ->where('學號', $query['學號'])
+        ->where('班級', $query['班級'])
+        ->where('姓名', $query['姓名'])
+        ->orderByDesc('日期')
+        ->orderByDesc('id')
+        ->first();
+
+    if (! $ticket) {
+        return response()->json([
+            'ticket' => null,
+        ]);
+    }
+
+    $periods = is_array($ticket->時段)
+        ? $ticket->時段
+        : (json_decode($ticket->時段, true) ?? []);
+
+    return response()->json([
+        'ticket' => [
+            'id' => $ticket->id,
+            '學號' => $ticket->學號,
+            '班級' => $ticket->班級,
+            '姓名' => $ticket->姓名,
+            '日期' => $ticket->日期?->format('Y-m-d'),
+            '星期' => $ticket->星期,
+            '時段' => $periods,
+            '車別' => $ticket->車別,
+            '站別' => $ticket->站別,
+            'station' => $ticket->station ? [
+                'id' => $ticket->station->id,
+                'vehicle' => $ticket->station->車別,
+                'station' => $ticket->station->站別,
+                'boarding' => $ticket->station->乘車處,
+                'one_way_amount' => (int) $ticket->station->單趟金額,
+                'one_month_amount' => (int) $ticket->station->單月金額,
+            ] : null,
+        ],
+    ]);
+});
+
 Route::get('/stations', function () {
     $stations = Station::query()
         ->orderBy('id')
@@ -448,6 +497,43 @@ Route::get('/temporary-ticket-controls', function () {
     );
 });
 
+
+Route::get('/temporary-tickets', function () {
+    $tickets = TemporaryTicket::query()
+        ->with('station')
+        ->orderBy('日期')
+        ->orderBy('id')
+        ->get()
+        ->map(function (TemporaryTicket $ticket) {
+            return [
+                'id' => $ticket->id,
+                '學號' => $ticket->學號,
+                '班級' => $ticket->班級,
+                '座號' => $ticket->座號,
+                '姓名' => $ticket->姓名,
+                '日期' => $ticket->日期?->format('Y-m-d'),
+                '星期' => $ticket->星期,
+                '時段' => is_array($ticket->時段)
+                    ? $ticket->時段
+                    : (json_decode($ticket->時段, true) ?? []),
+                '車別' => $ticket->車別,
+                '站別' => $ticket->站別,
+                '金額' => (int) $ticket->金額,
+                'station' => $ticket->station ? [
+                    'id' => $ticket->station->id,
+                    'vehicle' => $ticket->station->車別,
+                    'station' => $ticket->station->站別,
+                    'one_way_amount' => (int) $ticket->station->單趟金額,
+                ] : null,
+            ];
+        })
+        ->values()
+        ->all();
+
+    return response()->json([
+        'tickets' => $tickets,
+    ]);
+});
 
 Route::post('/temporary-tickets', function () {
     $payload = request()->validate([
