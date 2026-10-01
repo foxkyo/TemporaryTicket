@@ -204,7 +204,7 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="w-full">
+    <div class="w-40">
         <Button
             type="button"
             variant="outline"
@@ -214,8 +214,6 @@ onMounted(() => {
                 openModal();
             "
         >
-            <UserRound class="mr-2 h-4 w-4" />
-
             <template v-if="modelValue">
                 <Badge variant="secondary" class="mr-2">
                     {{ modelValue.班級 }}
@@ -226,7 +224,10 @@ onMounted(() => {
                 </span>
             </template>
 
-            <span v-else class="text-muted-foreground"> 選取學生 </span>
+            <span v-else class="inline-flex items-center text-muted-foreground">
+                <UserRound class="mr-2 h-4 w-4" />
+                <span>選取學生</span>
+            </span>
         </Button>
 
         <!-- ========================================================= -->

@@ -1,15 +1,15 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
-import { Check, Ticket, Trash2 } from "lucide-vue-next";
+import { computed, onMounted, ref } from 'vue';
+import { Check, Ticket, Trash2 } from 'lucide-vue-next';
 
-import StudentSelector from "@/components/StudentSelector.vue";
-import StationSelector from "@/components/StationSelector.vue";
-import TripActionGroup from "@/components/TripActionGroup.vue";
-import TripDateSelector from "@/components/TripDateSelector.vue";
-import TripPeriodButtonGroup from "@/components/TripPeriodButtonGroup.vue";
-import { canAllowDraftAdd, countInvalidRows } from "@/lib/ticketRowRules.js";
+import StudentSelector from '@/components/StudentSelector.vue';
+import StationSelector from '@/components/StationSelector.vue';
+import TripActionGroup from '@/components/TripActionGroup.vue';
+import TripDateSelector from '@/components/TripDateSelector.vue';
+import TripPeriodButtonGroup from '@/components/TripPeriodButtonGroup.vue';
+import { canAllowDraftAdd, countInvalidRows } from '@/lib/ticketRowRules.js';
 
-import { Button } from "@/components/ui/button";
+import { Button } from '@/components/ui/button';
 
 const formatDateValue = (date) => {
     const offset = date.getTimezoneOffset();
@@ -21,18 +21,18 @@ const formatDateValue = (date) => {
 const selectedStudent = ref(null);
 const selectedStation = ref(null);
 const selectedDate = ref(formatDateValue(new Date()));
-const selectedPeriods = ref(["放學"]);
+const selectedPeriods = ref(['放學']);
 
 const createBlankRow = () => ({
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     student: null,
     station: null,
     date: formatDateValue(new Date()),
-    periods: ["放學"],
+    periods: ['放學'],
 });
 
 const addedRows = ref([]);
-const toastMessage = ref("");
+const toastMessage = ref('');
 const toastVisible = ref(false);
 let toastTimeout = null;
 
@@ -46,7 +46,7 @@ const showToast = (message) => {
 
     toastTimeout = setTimeout(() => {
         toastVisible.value = false;
-        toastMessage.value = "";
+        toastMessage.value = '';
     }, 2500);
 };
 
@@ -56,7 +56,7 @@ const isBlankRow = (row) => {
         !row?.station &&
         row?.date === formatDateValue(new Date()) &&
         row?.periods?.length === 1 &&
-        row?.periods?.[0] === "放學"
+        row?.periods?.[0] === '放學'
     );
 };
 
@@ -64,7 +64,7 @@ const resetToFreshRow = () => {
     selectedStudent.value = null;
     selectedStation.value = null;
     selectedDate.value = formatDateValue(new Date());
-    selectedPeriods.value = ["放學"];
+    selectedPeriods.value = ['放學'];
     addedRows.value = [createBlankRow()];
 };
 
@@ -74,7 +74,7 @@ onMounted(() => {
 
 const studentDisplayName = computed(() => {
     if (!selectedStudent.value) {
-        return "";
+        return '';
     }
 
     return `${selectedStudent.value.班級} ${selectedStudent.value.姓名}`.trim();
@@ -82,19 +82,19 @@ const studentDisplayName = computed(() => {
 
 const stationDisplayName = computed(() => {
     if (!selectedStation.value) {
-        return "";
+        return '';
     }
 
-    return `${selectedStation.value.vehicle ?? ""} · ${selectedStation.value.station ?? ""}`.trim();
+    return `${selectedStation.value.vehicle ?? ''} · ${selectedStation.value.station ?? ''}`.trim();
 });
 
 const selectionSummary = computed(() => {
     if (!selectedStudent.value && !selectedStation.value) {
-        return "請選擇學生及站別";
+        return '請選擇學生及站別';
     }
 
     if (!selectedStudent.value) {
-        return selectedStation.value.station ?? "請選擇學生及站別";
+        return selectedStation.value.station ?? '請選擇學生及站別';
     }
 
     if (!selectedStation.value) {
@@ -141,10 +141,10 @@ const stationCheckState = computed(() => {
         !selectedPeriods.value.length ||
         !selectedStation.value
     ) {
-        return "disabled";
+        return 'disabled';
     }
 
-    return "valid";
+    return 'valid';
 });
 
 const cloneRowTemplate = (row) => ({
@@ -178,7 +178,7 @@ const canAddRows = computed(() => {
 const getStateSummary = (rows = addedRows.value) => {
     const realRows = rows.filter((item) => !isBlankRow(item));
     const validCount = realRows.filter(
-        (item) => rowCheckState(item, rows) === "valid",
+        (item) => rowCheckState(item, rows) === 'valid',
     ).length;
     const invalidCount = countInvalidRows(realRows, (item) =>
         rowCheckState(item, rows),
@@ -238,16 +238,16 @@ function rowRemainingValue(row) {
 
 function rowCheckState(row, rows = addedRows.value) {
     if (!row.date || !row.periods?.length || !row.station) {
-        return "disabled";
+        return 'disabled';
     }
 
     const effectiveRemaining = getEffectiveRemainingForRow(row, rows);
 
     if (effectiveRemaining === null) {
-        return "disabled";
+        return 'disabled';
     }
 
-    return effectiveRemaining < 0 ? "invalid" : "valid";
+    return effectiveRemaining < 0 ? 'invalid' : 'valid';
 }
 
 function rowCanCheck(row) {
@@ -256,7 +256,7 @@ function rowCanCheck(row) {
         row.periods?.length &&
         row.student &&
         row.station &&
-        rowCheckState(row) === "valid",
+        rowCheckState(row) === 'valid',
     );
 }
 
@@ -283,9 +283,9 @@ function addSelectedRows(count) {
         const nextState = rowCheckState(nextRow, nextRows);
         const { validCount, invalidCount } = getStateSummary(nextRows);
 
-        console.log("[ticket-check]", {
+        console.log('[ticket-check]', {
             date: nextRow.date,
-            vehicle: nextRow.station?.vehicle ?? "未知車別",
+            vehicle: nextRow.station?.vehicle ?? '未知車別',
             periods: nextRow.periods,
             validCount,
             invalidCount,
@@ -293,18 +293,18 @@ function addSelectedRows(count) {
         });
 
         if (invalidCount >= 2) {
-            showToast("已達 2 筆負餘票，無法再新增");
+            showToast('已達 2 筆負餘票，無法再新增');
             return;
         }
 
-        if (nextState !== "valid") {
-            showToast("目前票數已達負餘票限制，請修正後再新增");
+        if (nextState !== 'valid') {
+            showToast('目前票數已達負餘票限制，請修正後再新增');
             //return;
         }
 
         addedRows.value = nextRows;
-        const periodText = nextRow.periods.join(" / ");
-        const vehicleText = nextRow.station?.vehicle ?? "未知車別";
+        const periodText = nextRow.periods.join(' / ');
+        const vehicleText = nextRow.station?.vehicle ?? '未知車別';
         showToast(`${nextRow.date} ${periodText} ${vehicleText} 已加入 1 筆`);
     }
 }
@@ -341,134 +341,140 @@ function removeAddedRow(rowId) {
         <!-- Main -->
         <!-- ========================================================= -->
 
-        <main class="min-h-0 flex-1 overflow-auto">
-            <div class="p-4 md:p-6">
-                <div
-                    class="mb-3 flex items-center justify-between text-xs text-muted-foreground"
-                >
-                    <span>新增項目</span>
-                </div>
+        <div class="flex min-h-0 w-full flex-1">
+            <div class="flex min-h-0 w-1/2 flex-col">
+                <main class="flex-1 overflow-auto">
+                    <div class="p-2 md:p-4">
+                        <!-- ===================================================== -->
+                        <!-- Selected Information -->
+                        <!-- ===================================================== -->
 
-                <!-- ===================================================== -->
-                <!-- Selected Information -->
-                <!-- ===================================================== -->
+                        <div v-if="addedRows.length" class="mt-2 space-y-2">
+                            <div
+                                v-for="row in addedRows"
+                                :key="row.id"
+                                class="p-0"
+                            >
+                                <div
+                                    class="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_1.8fr_auto_auto]"
+                                >
+                                    <StudentSelector v-model="row.student" />
 
-                <div v-if="addedRows.length" class="mt-2 space-y-2">
-                    <div v-for="row in addedRows" :key="row.id" class="p-0">
-                        <div
-                            class="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_1.8fr_auto_auto]"
-                        >
-                            <StudentSelector v-model="row.student" />
+                                    <TripDateSelector v-model="row.date" />
 
-                            <TripDateSelector v-model="row.date" />
+                                    <TripPeriodButtonGroup
+                                        v-model="row.periods"
+                                    />
 
-                            <TripPeriodButtonGroup v-model="row.periods" />
+                                    <StationSelector
+                                        v-model="row.station"
+                                        v-model:selected-periods="row.periods"
+                                        :selected-date="row.date"
+                                        :selected-rows="addedRows"
+                                    />
 
-                            <StationSelector
-                                v-model="row.station"
-                                v-model:selected-periods="row.periods"
-                                :selected-date="row.date"
-                                :selected-rows="addedRows"
-                            />
-
-                            <div class="flex items-end">
-                                <TripActionGroup
-                                    :disabled="!rowCanCheck(row)"
-                                    :date="row.date"
-                                    :periods="row.periods"
-                                    :vehicle="row.station?.vehicle"
-                                    :remaining="rowRemainingValue(row)"
-                                    :check-state="rowCheckState(row)"
-                                    :show-delete="addedRows.length > 1"
-                                    @check="handleTripCheck"
-                                    @remove="removeAddedRow(row.id)"
-                                />
+                                    <div class="flex items-end">
+                                        <TripActionGroup
+                                            :disabled="!rowCanCheck(row)"
+                                            :date="row.date"
+                                            :periods="row.periods"
+                                            :vehicle="row.station?.vehicle"
+                                            :remaining="rowRemainingValue(row)"
+                                            :check-state="rowCheckState(row)"
+                                            :show-delete="addedRows.length > 1"
+                                            @check="handleTripCheck"
+                                            @remove="removeAddedRow(row.id)"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </main>
+
+                <footer class="mt-auto shrink-0 border-t bg-background">
+                    <div
+                        class="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between md:p-4"
+                    >
+                        <div class="text-sm text-muted-foreground">
+                            <template v-if="selectedStudent || selectedStation">
+                                {{ selectionSummary }}
+                            </template>
+
+                            <template v-else> 請選擇學生及站別 </template>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                :disabled="!canAddRows"
+                                @click="addSelectedRows(1)"
+                            >
+                                新增 1 筆
+                            </Button>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                :disabled="!canAddRows"
+                                @click="addSelectedRows(7)"
+                            >
+                                新增 7 筆
+                            </Button>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                :disabled="!canAddRows"
+                                @click="addSelectedRows(14)"
+                            >
+                                新增 14 筆
+                            </Button>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                :disabled="!canAddRows"
+                                @click="addSelectedRows(21)"
+                            >
+                                新增 21 筆
+                            </Button>
+
+                            <Button
+                                type="button"
+                                variant="outline"
+                                :disabled="!canClearSelection"
+                                @click="clearSelection"
+                            >
+                                <Trash2 class="mr-2 h-4 w-4" />
+
+                                清除
+                            </Button>
+
+                            <Button
+                                type="button"
+                                :disabled="!canConfirm"
+                                @click="confirmTicket"
+                            >
+                                <Check class="mr-2 h-4 w-4" />
+
+                                確定
+                            </Button>
+                        </div>
+                    </div>
+                </footer>
             </div>
-        </main>
+
+            <div class="w-1/2">右邊</div>
+        </div>
 
         <!-- ========================================================= -->
         <!-- Footer -->
         <!-- ========================================================= -->
-
-        <footer class="shrink-0 border-t bg-background">
-            <div
-                class="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between md:p-4"
-            >
-                <div class="text-sm text-muted-foreground">
-                    <template v-if="selectedStudent || selectedStation">
-                        {{ selectionSummary }}
-                    </template>
-
-                    <template v-else> 請選擇學生及站別 </template>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        :disabled="!canAddRows"
-                        @click="addSelectedRows(1)"
-                    >
-                        新增 1 筆
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        :disabled="!canAddRows"
-                        @click="addSelectedRows(7)"
-                    >
-                        新增 7 筆
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        :disabled="!canAddRows"
-                        @click="addSelectedRows(14)"
-                    >
-                        新增 14 筆
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        :disabled="!canAddRows"
-                        @click="addSelectedRows(21)"
-                    >
-                        新增 21 筆
-                    </Button>
-
-                    <Button
-                        type="button"
-                        variant="outline"
-                        :disabled="!canClearSelection"
-                        @click="clearSelection"
-                    >
-                        <Trash2 class="mr-2 h-4 w-4" />
-
-                        清除
-                    </Button>
-
-                    <Button
-                        type="button"
-                        :disabled="!canConfirm"
-                        @click="confirmTicket"
-                    >
-                        <Check class="mr-2 h-4 w-4" />
-
-                        確定
-                    </Button>
-                </div>
-            </div>
-        </footer>
     </div>
 </template>

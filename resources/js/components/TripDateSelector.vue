@@ -2,19 +2,19 @@
 const props = defineProps({
     modelValue: {
         type: String,
-        default: '',
+        default: "",
     },
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(["update:modelValue"]);
 
 function handleDateChange(event) {
-    emit('update:modelValue', event.target.value);
+    emit("update:modelValue", event.target.value);
 }
 </script>
 
 <template>
-    <div class="flex min-w-[180px] items-center gap-2">
+    <div class="flex w-[120px] items-center gap-2">
         <input
             :value="modelValue"
             type="date"

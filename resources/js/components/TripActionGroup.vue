@@ -4,10 +4,6 @@ import { Check, Trash2 } from 'lucide-vue-next';
 import { Button } from '@/components/ui/button';
 
 const props = defineProps({
-    disabled: {
-        type: Boolean,
-        default: false,
-    },
     date: {
         type: String,
         default: '',
@@ -26,8 +22,8 @@ const props = defineProps({
     },
     checkState: {
         type: String,
-        default: 'disabled',
-        validator: (value) => ['disabled', 'valid', 'invalid'].includes(value),
+        default: 'valid',
+        validator: (value) => ['valid', 'invalid'].includes(value),
     },
     showDelete: {
         type: Boolean,
@@ -63,9 +59,7 @@ const checkTitle = computed(() => {
     const stateText =
         props.checkState === 'invalid'
             ? '檢查狀態: invalid'
-            : props.checkState === 'valid'
-              ? '檢查狀態: valid'
-              : '檢查狀態: disabled';
+            : '檢查狀態: valid';
 
     return `檢查 ${props.date || '日期'}｜時段: ${periodText}｜車別: ${vehicleText}｜${remainderText}｜${stateText}`;
 });
@@ -81,19 +75,13 @@ const checkTitle = computed(() => {
             :class="
                 isInvalid
                     ? 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400'
-                    : isValid
-                      ? 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400'
-                      : 'border-muted bg-muted/50 text-muted-foreground'
+                    : 'border-green-200 bg-green-50 text-green-600 hover:bg-green-100 dark:border-green-900 dark:bg-green-950/30 dark:text-green-400'
             "
-            :disabled="disabled"
             :title="checkTitle"
             @click="emit('check')"
         >
             <Check v-if="isValid" class="h-4 w-4" />
-            <span v-else-if="isInvalid" class="text-sm leading-none font-bold">
-                ×
-            </span>
-            <span v-else class="text-xs leading-none">—</span>
+            <span v-else class="text-sm leading-none font-bold">×</span>
         </Button>
 
         <Button

@@ -344,9 +344,14 @@ const selectedLabel = computed(() => {
         : '';
 
     const station = props.modelValue.station ?? props.modelValue.站別 ?? '';
+    const vehicle = props.modelValue.vehicle ?? '';
 
-    if (periods && station) {
-        return `${periods}・${station}`;
+    // if (periods && station) {
+    //     return `${vehicle}・${station}`;
+    // }
+
+    if (vehicle && station) {
+        return `${vehicle}・${station}`;
     }
 
     return station || '選擇站別';
@@ -381,7 +386,7 @@ watch(
     <Button
         type="button"
         variant="outline"
-        class="w-full justify-between"
+        class="w-64 justify-between"
         @click="openSelector"
     >
         <span class="truncate text-left">
