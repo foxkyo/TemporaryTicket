@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { canAllowDraftAdd, countInvalidRows } from './ticketRowRules.js';
+import {
+    canAllowDraftAdd,
+    countInvalidRows,
+    shouldShowAddLimitToast,
+} from './ticketRowRules.js';
 
 const invalidState = (row) => {
     if (!row.date || !row.periods?.length || !row.station) {
@@ -72,4 +76,26 @@ void test('allows valid rows while one invalid row remains for correction', () =
 
     assert.equal(countInvalidRows(rows, invalidState), 1);
     assert.equal(canAllowDraftAdd(row, rows, invalidState), true);
+});
+
+void test('shows the limit toast when two invalid rows already exist', () => {
+    const rows = [
+        {
+            id: 1,
+            date: '2026-09-22',
+            periods: ['放學'],
+            station: { vehicle: 'A' },
+            student: { name: 'A' },
+        },
+        {
+            id: 2,
+            date: '2026-09-22',
+            periods: ['放學'],
+            station: { vehicle: 'A' },
+            student: { name: 'B' },
+        },
+    ];
+
+    assert.equal(countInvalidRows(rows, invalidState), 2);
+    assert.equal(shouldShowAddLimitToast(rows, invalidState), true);
 });

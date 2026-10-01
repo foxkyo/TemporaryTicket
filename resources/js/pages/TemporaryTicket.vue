@@ -9,7 +9,11 @@ import Tickets from '@/components/Tickets.vue';
 import TripActionGroup from '@/components/TripActionGroup.vue';
 import TripDateSelector from '@/components/TripDateSelector.vue';
 import TripPeriodButtonGroup from '@/components/TripPeriodButtonGroup.vue';
-import { canAllowDraftAdd, countInvalidRows } from '@/lib/ticketRowRules.js';
+import {
+    canAllowDraftAdd,
+    countInvalidRows,
+    shouldShowAddLimitToast,
+} from '@/lib/ticketRowRules.js';
 
 import { Button } from '@/components/ui/button';
 
@@ -330,18 +334,6 @@ const getLatestTemplateRow = () => {
 
 const currentDraftRow = computed(() => getLatestTemplateRow());
 
-const canAddRows = computed(() => {
-    const row = currentDraftRow.value;
-
-    if (!row || !canAllowDraftAdd(row, addedRows.value, rowCheckState)) {
-        return false;
-    }
-
-    const invalidRows = addedRows.value.filter((item) => !isBlankRow(item));
-
-    return countInvalidRows(invalidRows, rowCheckState) < 2;
-});
-
 const getStateSummary = (rows = addedRows.value) => {
     const realRows = rows.filter((item) => !isBlankRow(item));
     const validCount = realRows.filter(
@@ -580,7 +572,11 @@ function applyBatchAddSequentially(row, count) {
             invalidCount,
         });
 
-        if (invalidCount >= 2) {
+        if (
+            shouldShowAddLimitToast(candidateRows, (item) =>
+                rowCheckState(item, candidateRows),
+            )
+        ) {
             showToast('已達 2 筆負餘票，無法再新增');
             break;
         }
@@ -610,6 +606,16 @@ function applyBatchAddSequentially(row, count) {
 }
 
 function addSelectedRows(count) {
+    const invalidLimitTriggered = shouldShowAddLimitToast(
+        addedRows.value,
+        (item) => rowCheckState(item, addedRows.value),
+    );
+
+    if (invalidLimitTriggered) {
+        showToast('已達 2 筆負餘票，無法再新增');
+        return;
+    }
+
     const row = currentDraftRow.value;
 
     if (
@@ -618,6 +624,14 @@ function addSelectedRows(count) {
         !row.station ||
         !row.date ||
         !row.periods?.length
+    ) {
+        return;
+    }
+
+    if (
+        !canAllowDraftAdd(row, addedRows.value, (item) =>
+            rowCheckState(item, addedRows.value),
+        )
     ) {
         return;
     }
@@ -782,7 +796,6 @@ function removeAddedRow(rowId) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    :disabled="!canAddRows"
                                     @click="addSelectedRows(1)"
                                 >
                                     新增 1 筆
@@ -792,7 +805,6 @@ function removeAddedRow(rowId) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    :disabled="!canAddRows"
                                     @click="addSelectedRows(7)"
                                 >
                                     新增 7 筆
@@ -802,7 +814,6 @@ function removeAddedRow(rowId) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    :disabled="!canAddRows"
                                     @click="addSelectedRows(14)"
                                 >
                                     新增 14 筆
@@ -812,7 +823,6 @@ function removeAddedRow(rowId) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
-                                    :disabled="!canAddRows"
                                     @click="addSelectedRows(21)"
                                 >
                                     新增 21 筆

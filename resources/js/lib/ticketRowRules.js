@@ -8,6 +8,13 @@ export function countInvalidRows(rows = [], rowCheckState = () => 'valid') {
     }).length;
 }
 
+export function shouldShowAddLimitToast(
+    rows = [],
+    rowCheckState = () => 'valid',
+) {
+    return countInvalidRows(rows, rowCheckState) >= 2;
+}
+
 export function canAllowDraftAdd(
     draftRow,
     rows = [],
