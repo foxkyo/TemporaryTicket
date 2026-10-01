@@ -209,6 +209,7 @@ onMounted(() => {
             type="button"
             variant="outline"
             class="w-full justify-start"
+            :class="!modelValue ? 'border-red-500 ring-2 ring-red-500/20' : ''"
             @click="
                 studentModalOpen = true;
                 openModal();

@@ -20,14 +20,14 @@ function togglePeriod(period) {
 </script>
 
 <template>
-    <div class="flex flex-wrap items-center gap-2">
+    <div class="flex items-center gap-2">
         <Button
             v-for="period in ['上學', '放學']"
             :key="period"
             type="button"
             size="sm"
             variant="outline"
-            class="min-w-[72px] justify-center"
+            class="min-w-[60px] shrink-0 justify-center px-2"
             :class="
                 modelValue.includes(period)
                     ? 'border-primary bg-primary/10 text-primary'

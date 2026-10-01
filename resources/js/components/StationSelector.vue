@@ -387,6 +387,7 @@ watch(
         type="button"
         variant="outline"
         class="w-64 justify-between"
+        :class="!modelValue ? 'border-red-500 ring-2 ring-red-500/20' : ''"
         @click="openSelector"
     >
         <span class="truncate text-left">

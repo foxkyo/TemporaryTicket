@@ -287,8 +287,10 @@ function getGeneratedDateForIndex(baseDate, index, lastGeneratedDate = null) {
     let candidate = new Date(base);
 
     if (addOptions.value.sameDate) {
-        candidate = new Date(base);
-    } else if (addOptions.value.fixedWeekday) {
+        return formatDateValue(candidate);
+    }
+
+    if (addOptions.value.fixedWeekday) {
         candidate.setDate(base.getDate() + offset * 7);
     } else if (addOptions.value.incrementDate) {
         candidate.setDate(base.getDate() + offset);
@@ -433,13 +435,23 @@ function removeAddedRow(rowId) {
 
                         <div v-if="addedRows.length" class="mt-2 space-y-2">
                             <div
-                                v-for="row in addedRows"
+                                v-for="(row, index) in addedRows"
                                 :key="row.id"
                                 class="p-0"
                             >
                                 <div
-                                    class="grid gap-3 md:grid-cols-[1.2fr_1fr_1fr_1.8fr_auto_auto]"
+                                    class="grid items-center gap-2 md:grid-cols-[auto_minmax(140px,1.2fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(220px,1.8fr)_auto_auto]"
                                 >
+                                    <div
+                                        class="flex items-center justify-center"
+                                    >
+                                        <span
+                                            class="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/50 text-[11px] font-semibold text-muted-foreground"
+                                        >
+                                            {{ index + 1 }}
+                                        </span>
+                                    </div>
+
                                     <StudentSelector v-model="row.student" />
 
                                     <TripDateSelector v-model="row.date" />
@@ -479,12 +491,14 @@ function removeAddedRow(rowId) {
                         class="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between md:p-4"
                     >
                         <div class="flex flex-wrap items-center gap-3">
-                            <div class="flex items-center gap-2 border-l pl-4">
+                            <div
+                                class="flex items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5"
+                            >
                                 <button
                                     v-for="option in [
                                         {
                                             key: 'sameDate',
-                                            label: '加入日期不變',
+                                            label: '日期不變',
                                         },
                                         {
                                             key: 'incrementDate',
@@ -492,26 +506,35 @@ function removeAddedRow(rowId) {
                                         },
                                         {
                                             key: 'fixedWeekday',
-                                            label: '星期固定',
-                                        },
-                                        {
-                                            key: 'skipWeekend',
-                                            label: '避開六日',
+                                            label: '固定星期',
                                         },
                                     ]"
                                     :key="option.key"
                                     type="button"
-                                    class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+                                    class="min-w-[90px] rounded-[6px] px-2.5 py-1.5 text-xs font-medium tracking-wide transition-all"
                                     :class="
                                         addOptions[option.key]
-                                            ? 'border-primary bg-primary/10 text-primary'
-                                            : 'border-muted bg-background text-muted-foreground'
+                                            ? 'bg-foreground text-background shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]'
+                                            : 'text-muted-foreground hover:text-foreground'
                                     "
                                     @click="toggleAddOption(option.key)"
                                 >
                                     {{ option.label }}
                                 </button>
                             </div>
+
+                            <button
+                                type="button"
+                                class="rounded-md border px-2.5 py-1.5 text-xs font-medium tracking-wide transition-colors"
+                                :class="
+                                    addOptions.skipWeekend
+                                        ? 'border-foreground bg-foreground text-background shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]'
+                                        : 'border-muted bg-background text-muted-foreground'
+                                "
+                                @click="toggleAddOption('skipWeekend')"
+                            >
+                                避開六日
+                            </button>
 
                             <div class="flex flex-wrap items-center gap-2">
                                 <Button
@@ -580,7 +603,9 @@ function removeAddedRow(rowId) {
                 </footer>
             </div>
 
-            <div class="w-1/2">右邊</div>
+            <div class="w-1/2 border-l bg-muted/20 p-4">
+                <div class="flex h-full items-start justify-center">右邊</div>
+            </div>
         </div>
 
         <!-- ========================================================= -->
