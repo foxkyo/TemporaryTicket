@@ -32,6 +32,12 @@ const createBlankRow = () => ({
 });
 
 const addedRows = ref([]);
+const addOptions = ref({
+    sameDate: false,
+    fixedWeekday: false,
+    incrementDate: true,
+    skipWeekend: true,
+});
 const toastMessage = ref('');
 const toastVisible = ref(false);
 let toastTimeout = null;
@@ -260,6 +266,63 @@ function rowCanCheck(row) {
     );
 }
 
+function toggleAddOption(key) {
+    if (
+        key === 'sameDate' ||
+        key === 'fixedWeekday' ||
+        key === 'incrementDate'
+    ) {
+        addOptions.value.sameDate = key === 'sameDate';
+        addOptions.value.fixedWeekday = key === 'fixedWeekday';
+        addOptions.value.incrementDate = key === 'incrementDate';
+        return;
+    }
+
+    addOptions.value[key] = !addOptions.value[key];
+}
+
+function getGeneratedDateForIndex(baseDate, index, lastGeneratedDate = null) {
+    const base = new Date(`${baseDate}T00:00:00`);
+    const offset = index + 1;
+    let candidate = new Date(base);
+
+    if (addOptions.value.sameDate) {
+        candidate = new Date(base);
+    } else if (addOptions.value.fixedWeekday) {
+        candidate.setDate(base.getDate() + offset * 7);
+    } else if (addOptions.value.incrementDate) {
+        candidate.setDate(base.getDate() + offset);
+    }
+
+    const lastDate = lastGeneratedDate
+        ? new Date(`${lastGeneratedDate}T00:00:00`)
+        : null;
+
+    if (lastDate && candidate <= lastDate) {
+        candidate = new Date(lastDate);
+        candidate.setDate(candidate.getDate() + 1);
+    }
+
+    if (addOptions.value.skipWeekend) {
+        while (candidate.getDay() === 0 || candidate.getDay() === 6) {
+            candidate.setDate(candidate.getDate() + 1);
+        }
+    }
+
+    if (lastDate && candidate <= lastDate) {
+        candidate = new Date(lastDate);
+        candidate.setDate(candidate.getDate() + 1);
+
+        if (addOptions.value.skipWeekend) {
+            while (candidate.getDay() === 0 || candidate.getDay() === 6) {
+                candidate.setDate(candidate.getDate() + 1);
+            }
+        }
+    }
+
+    return formatDateValue(candidate);
+}
+
 function addSelectedRows(count) {
     const row = currentDraftRow.value;
 
@@ -276,20 +339,28 @@ function addSelectedRows(count) {
     const addCount = Number.isFinite(Number(count))
         ? Math.max(1, Number(count))
         : 1;
+    const generatedRows = [];
 
     for (let step = 0; step < addCount; step += 1) {
         const nextRow = cloneRowTemplate(row);
-        const nextRows = [...addedRows.value, nextRow];
-        const nextState = rowCheckState(nextRow, nextRows);
-        const { validCount, invalidCount } = getStateSummary(nextRows);
+        const previousGeneratedDate = generatedRows.at(-1)?.date ?? null;
+        nextRow.date = getGeneratedDateForIndex(
+            row.date,
+            step,
+            previousGeneratedDate,
+        );
+
+        const combinedRows = [...addedRows.value, ...generatedRows, nextRow];
+        const nextState = rowCheckState(nextRow, combinedRows);
+        const { invalidCount } = getStateSummary(combinedRows);
 
         console.log('[ticket-check]', {
+            index: step,
             date: nextRow.date,
             vehicle: nextRow.station?.vehicle ?? '未知車別',
             periods: nextRow.periods,
-            validCount,
-            invalidCount,
             nextState,
+            invalidCount,
         });
 
         if (invalidCount >= 2) {
@@ -297,16 +368,27 @@ function addSelectedRows(count) {
             return;
         }
 
-        if (nextState !== 'valid') {
-            showToast('目前票數已達負餘票限制，請修正後再新增');
-            //return;
-        }
+        generatedRows.push(nextRow);
 
-        addedRows.value = nextRows;
-        const periodText = nextRow.periods.join(' / ');
-        const vehicleText = nextRow.station?.vehicle ?? '未知車別';
-        showToast(`${nextRow.date} ${periodText} ${vehicleText} 已加入 1 筆`);
+        if (nextState !== 'valid') {
+            showToast(
+                `${nextRow.date} ${nextRow.periods.join(' / ')} ${nextRow.station?.vehicle ?? '未知車別'} 已加入，但需確認剩餘票`,
+            );
+        }
     }
+
+    if (!generatedRows.length) {
+        return;
+    }
+
+    addedRows.value = [...addedRows.value, ...generatedRows];
+
+    const firstRow = generatedRows[0];
+    const periodText = firstRow.periods.join(' / ');
+    const vehicleText = firstRow.station?.vehicle ?? '未知車別';
+    showToast(
+        `${firstRow.date} ${periodText} ${vehicleText} 已加入 ${generatedRows.length} 筆`,
+    );
 }
 
 function removeAddedRow(rowId) {
@@ -396,75 +478,103 @@ function removeAddedRow(rowId) {
                     <div
                         class="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between md:p-4"
                     >
-                        <div class="text-sm text-muted-foreground">
-                            <template v-if="selectedStudent || selectedStation">
-                                {{ selectionSummary }}
-                            </template>
+                        <div class="flex flex-wrap items-center gap-3">
+                            <div class="flex items-center gap-2 border-l pl-4">
+                                <button
+                                    v-for="option in [
+                                        {
+                                            key: 'sameDate',
+                                            label: '加入日期不變',
+                                        },
+                                        {
+                                            key: 'incrementDate',
+                                            label: '日期遞增',
+                                        },
+                                        {
+                                            key: 'fixedWeekday',
+                                            label: '星期固定',
+                                        },
+                                        {
+                                            key: 'skipWeekend',
+                                            label: '避開六日',
+                                        },
+                                    ]"
+                                    :key="option.key"
+                                    type="button"
+                                    class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+                                    :class="
+                                        addOptions[option.key]
+                                            ? 'border-primary bg-primary/10 text-primary'
+                                            : 'border-muted bg-background text-muted-foreground'
+                                    "
+                                    @click="toggleAddOption(option.key)"
+                                >
+                                    {{ option.label }}
+                                </button>
+                            </div>
 
-                            <template v-else> 請選擇學生及站別 </template>
-                        </div>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    :disabled="!canAddRows"
+                                    @click="addSelectedRows(1)"
+                                >
+                                    新增 1 筆
+                                </Button>
 
-                        <div class="flex flex-wrap items-center gap-2">
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                :disabled="!canAddRows"
-                                @click="addSelectedRows(1)"
-                            >
-                                新增 1 筆
-                            </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    :disabled="!canAddRows"
+                                    @click="addSelectedRows(7)"
+                                >
+                                    新增 7 筆
+                                </Button>
 
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                :disabled="!canAddRows"
-                                @click="addSelectedRows(7)"
-                            >
-                                新增 7 筆
-                            </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    :disabled="!canAddRows"
+                                    @click="addSelectedRows(14)"
+                                >
+                                    新增 14 筆
+                                </Button>
 
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                :disabled="!canAddRows"
-                                @click="addSelectedRows(14)"
-                            >
-                                新增 14 筆
-                            </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    :disabled="!canAddRows"
+                                    @click="addSelectedRows(21)"
+                                >
+                                    新增 21 筆
+                                </Button>
 
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                :disabled="!canAddRows"
-                                @click="addSelectedRows(21)"
-                            >
-                                新增 21 筆
-                            </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    :disabled="!canClearSelection"
+                                    @click="clearSelection"
+                                >
+                                    <Trash2 class="mr-2 h-4 w-4" />
 
-                            <Button
-                                type="button"
-                                variant="outline"
-                                :disabled="!canClearSelection"
-                                @click="clearSelection"
-                            >
-                                <Trash2 class="mr-2 h-4 w-4" />
+                                    清除
+                                </Button>
 
-                                清除
-                            </Button>
+                                <Button
+                                    type="button"
+                                    :disabled="!canConfirm"
+                                    @click="confirmTicket"
+                                >
+                                    <Check class="mr-2 h-4 w-4" />
 
-                            <Button
-                                type="button"
-                                :disabled="!canConfirm"
-                                @click="confirmTicket"
-                            >
-                                <Check class="mr-2 h-4 w-4" />
-
-                                確定
-                            </Button>
+                                    確定
+                                </Button>
+                            </div>
                         </div>
                     </div>
                 </footer>

@@ -2,14 +2,14 @@
 const props = defineProps({
     modelValue: {
         type: String,
-        default: "",
+        default: '',
     },
 });
 
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits(['update:modelValue']);
 
 function handleDateChange(event) {
-    emit("update:modelValue", event.target.value);
+    emit('update:modelValue', event.target.value);
 }
 </script>
 
