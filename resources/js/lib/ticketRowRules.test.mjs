@@ -78,7 +78,7 @@ void test('allows valid rows while one invalid row remains for correction', () =
     assert.equal(canAllowDraftAdd(row, rows, invalidState), true);
 });
 
-void test('shows the limit toast when two invalid rows already exist', () => {
+void test('shows the limit toast when invalid rows exceed one', () => {
     const rows = [
         {
             id: 1,

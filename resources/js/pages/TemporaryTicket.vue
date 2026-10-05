@@ -1,21 +1,27 @@
 <script setup>
-import axios from 'axios';
-import { computed, onMounted, ref } from 'vue';
-import { Check, Ticket, Trash2 } from 'lucide-vue-next';
+import axios from "axios";
+import { computed, onMounted, ref } from "vue";
+import {
+    AlertTriangle,
+    Check,
+    CircleAlert,
+    Ticket,
+    Trash2,
+} from "lucide-vue-next";
 
-import StudentSelector from '@/components/StudentSelector.vue';
-import StationSelector from '@/components/StationSelector.vue';
-import Tickets from '@/components/Tickets.vue';
-import TripActionGroup from '@/components/TripActionGroup.vue';
-import TripDateSelector from '@/components/TripDateSelector.vue';
-import TripPeriodButtonGroup from '@/components/TripPeriodButtonGroup.vue';
+import StudentSelector from "@/components/StudentSelector.vue";
+import StationSelector from "@/components/StationSelector.vue";
+import Tickets from "@/components/Tickets.vue";
+import TripActionGroup from "@/components/TripActionGroup.vue";
+import TripDateSelector from "@/components/TripDateSelector.vue";
+import TripPeriodButtonGroup from "@/components/TripPeriodButtonGroup.vue";
 import {
     canAllowDraftAdd,
     countInvalidRows,
     shouldShowAddLimitToast,
-} from '@/lib/ticketRowRules.js';
+} from "@/lib/ticketRowRules.js";
 
-import { Button } from '@/components/ui/button';
+import { Button } from "@/components/ui/button";
 
 const formatDateValue = (date) => {
     const offset = date.getTimezoneOffset();
@@ -27,14 +33,14 @@ const formatDateValue = (date) => {
 const selectedStudent = ref(null);
 const selectedStation = ref(null);
 const selectedDate = ref(formatDateValue(new Date()));
-const selectedPeriods = ref(['放學']);
+const selectedPeriods = ref(["放學"]);
 
 const createBlankRow = () => ({
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     student: null,
     station: null,
     date: formatDateValue(new Date()),
-    periods: ['放學'],
+    periods: ["放學"],
 });
 
 const addedRows = ref([]);
@@ -44,12 +50,14 @@ const addOptions = ref({
     incrementDate: true,
     skipWeekend: true,
 });
-const toastMessage = ref('');
+const toastMessage = ref("");
+const toastType = ref("success");
 const toastVisible = ref(false);
 let toastTimeout = null;
 
-const showToast = (message) => {
+const showToast = (message, type = "success") => {
     toastMessage.value = message;
+    toastType.value = type;
     toastVisible.value = true;
 
     if (toastTimeout) {
@@ -58,7 +66,8 @@ const showToast = (message) => {
 
     toastTimeout = setTimeout(() => {
         toastVisible.value = false;
-        toastMessage.value = '';
+        toastMessage.value = "";
+        toastType.value = "success";
     }, 2500);
 };
 
@@ -68,7 +77,7 @@ const isBlankRow = (row) => {
         !row?.station &&
         row?.date === formatDateValue(new Date()) &&
         row?.periods?.length === 1 &&
-        row?.periods?.[0] === '放學'
+        row?.periods?.[0] === "放學"
     );
 };
 
@@ -76,7 +85,7 @@ const resetToFreshRow = () => {
     selectedStudent.value = null;
     selectedStation.value = null;
     selectedDate.value = formatDateValue(new Date());
-    selectedPeriods.value = ['放學'];
+    selectedPeriods.value = ["放學"];
     addedRows.value = [createBlankRow()];
 };
 
@@ -86,7 +95,7 @@ onMounted(() => {
 
 const studentDisplayName = computed(() => {
     if (!selectedStudent.value) {
-        return '';
+        return "";
     }
 
     return `${selectedStudent.value.班級} ${selectedStudent.value.姓名}`.trim();
@@ -94,19 +103,19 @@ const studentDisplayName = computed(() => {
 
 const stationDisplayName = computed(() => {
     if (!selectedStation.value) {
-        return '';
+        return "";
     }
 
-    return `${selectedStation.value.vehicle ?? ''} · ${selectedStation.value.station ?? ''}`.trim();
+    return `${selectedStation.value.vehicle ?? ""} · ${selectedStation.value.station ?? ""}`.trim();
 });
 
 const selectionSummary = computed(() => {
     if (!selectedStudent.value && !selectedStation.value) {
-        return '請選擇學生及站別';
+        return "請選擇學生及站別";
     }
 
     if (!selectedStudent.value) {
-        return selectedStation.value.station ?? '請選擇學生及站別';
+        return selectedStation.value.station ?? "請選擇學生及站別";
     }
 
     if (!selectedStation.value) {
@@ -119,15 +128,15 @@ const selectionSummary = computed(() => {
 const confirmTicket = async () => {
     const tickets = addedRows.value
         .filter((row) => !isBlankRow(row))
-        .filter((row) => rowCheckState(row, addedRows.value) === 'valid');
+        .filter((row) => rowCheckState(row, addedRows.value) === "valid");
 
     if (!tickets.length || totalTicketAmount.value <= 0) {
-        showToast('沒有可儲存的票資料');
+        showToast("沒有可儲存的票資料", "error");
         return;
     }
 
     try {
-        const { data } = await axios.post('/api/temporary-tickets', {
+        const { data } = await axios.post("/api/temporary-tickets", {
             tickets: tickets.map((row) => ({
                 student: row.student,
                 station: row.station,
@@ -139,15 +148,15 @@ const confirmTicket = async () => {
 
         savedTickets.value = data.tickets ?? [];
         previewVisible.value = true;
-        showToast(`已儲存 ${data.saved ?? tickets.length} 筆資料`);
+        showToast(`已儲存 ${data.saved ?? tickets.length} 筆資料`, "success");
         resetToFreshRow();
     } catch (error) {
         const message =
             error?.response?.data?.message ||
             error?.response?.data?.error ||
-            '儲存失敗';
+            "儲存失敗";
 
-        showToast(message);
+        showToast(message, "error");
     }
 };
 
@@ -187,7 +196,7 @@ const resolveAutoAppliedStation = async (ticket) => {
     }
 
     try {
-        const { data } = await axios.get('/api/stations');
+        const { data } = await axios.get("/api/stations");
         const stationAreas = Array.isArray(data) ? data : [];
 
         for (const area of stationAreas) {
@@ -205,9 +214,9 @@ const resolveAutoAppliedStation = async (ticket) => {
                 }
 
                 return (
-                    String(item?.station ?? '') ===
+                    String(item?.station ?? "") ===
                         String(fallbackStation.station) &&
-                    String(item?.vehicle ?? '') ===
+                    String(item?.vehicle ?? "") ===
                         String(fallbackStation.vehicle)
                 );
             });
@@ -226,7 +235,7 @@ const resolveAutoAppliedStation = async (ticket) => {
             }
         }
     } catch (error) {
-        console.warn('查詢站別資料失敗，使用歷史資料備援', error);
+        console.warn("查詢站別資料失敗，使用歷史資料備援", error);
     }
 
     return fallbackStation;
@@ -239,7 +248,7 @@ const applyLastStudentTicketPreference = async (row) => {
 
     try {
         const { data } = await axios.get(
-            '/api/temporary-tickets/latest-for-student',
+            "/api/temporary-tickets/latest-for-student",
             {
                 params: {
                     學號: row.student.學號,
@@ -263,11 +272,9 @@ const applyLastStudentTicketPreference = async (row) => {
             row.station = await resolveAutoAppliedStation(ticket);
         }
 
-        showToast(
-            `已套用 ${row.student.班級} ${row.student.姓名} 的上一筆紀錄`,
-        );
+        showToast(`已套用歷史購票紀錄`, "success");
     } catch (error) {
-        console.warn('查詢學生歷史票資料失敗', error);
+        console.warn("套用歷史票資料失敗", error);
     }
 };
 
@@ -312,10 +319,10 @@ const stationCheckState = computed(() => {
         !selectedPeriods.value.length ||
         !selectedStation.value
     ) {
-        return 'disabled';
+        return "disabled";
     }
 
-    return 'valid';
+    return "valid";
 });
 
 const cloneRowTemplate = (row) => ({
@@ -337,7 +344,7 @@ const currentDraftRow = computed(() => getLatestTemplateRow());
 const getStateSummary = (rows = addedRows.value) => {
     const realRows = rows.filter((item) => !isBlankRow(item));
     const validCount = realRows.filter(
-        (item) => rowCheckState(item, rows) === 'valid',
+        (item) => rowCheckState(item, rows) === "valid",
     ).length;
     const invalidCount = countInvalidRows(realRows, (item) =>
         rowCheckState(item, rows),
@@ -353,7 +360,7 @@ const canClearSelection = computed(() => {
 const validRows = computed(() => {
     return addedRows.value.filter(
         (row) =>
-            !isBlankRow(row) && rowCheckState(row, addedRows.value) === 'valid',
+            !isBlankRow(row) && rowCheckState(row, addedRows.value) === "valid",
     );
 });
 
@@ -372,13 +379,13 @@ function getStudentPriceSummary(rows = []) {
     const grouped = new Map();
 
     rows.forEach((row) => {
-        if (!row?.student || rowCheckState(row, rows) !== 'valid') {
+        if (!row?.student || rowCheckState(row, rows) !== "valid") {
             return;
         }
 
         const studentKey =
-            `${row.student.班級 ?? ''} ${row.student.姓名 ?? ''}`.trim();
-        const studentName = studentKey || '未知學生';
+            `${row.student.班級 ?? ""} ${row.student.姓名 ?? ""}`.trim();
+        const studentName = studentKey || "未知學生";
         const subtotal = getRowTicketAmount(row);
 
         grouped.set(studentName, (grouped.get(studentName) ?? 0) + subtotal);
@@ -401,7 +408,7 @@ const totalTicketAmount = computed(() => {
 function formatCurrency(value) {
     const amount = Number(value ?? 0);
 
-    return `NT$ ${amount.toLocaleString('zh-TW')}`;
+    return `NT$ ${amount.toLocaleString("zh-TW")}`;
 }
 
 function getEffectiveRemainingForRow(row, rows = addedRows.value) {
@@ -462,16 +469,16 @@ function rowRemainingValue(row) {
 
 function rowCheckState(row, rows = addedRows.value) {
     if (!row.date || !row.periods?.length || !row.station) {
-        return 'disabled';
+        return "disabled";
     }
 
     const effectiveRemaining = getEffectiveRemainingForRow(row, rows);
 
     if (effectiveRemaining === null) {
-        return 'valid';
+        return "valid";
     }
 
-    return effectiveRemaining < 0 ? 'invalid' : 'valid';
+    return effectiveRemaining < 0 ? "invalid" : "valid";
 }
 
 function rowCanCheck(row) {
@@ -480,19 +487,19 @@ function rowCanCheck(row) {
         row.periods?.length &&
         row.student &&
         row.station &&
-        rowCheckState(row) === 'valid',
+        rowCheckState(row) === "valid",
     );
 }
 
 function toggleAddOption(key) {
     if (
-        key === 'sameDate' ||
-        key === 'fixedWeekday' ||
-        key === 'incrementDate'
+        key === "sameDate" ||
+        key === "fixedWeekday" ||
+        key === "incrementDate"
     ) {
-        addOptions.value.sameDate = key === 'sameDate';
-        addOptions.value.fixedWeekday = key === 'fixedWeekday';
-        addOptions.value.incrementDate = key === 'incrementDate';
+        addOptions.value.sameDate = key === "sameDate";
+        addOptions.value.fixedWeekday = key === "fixedWeekday";
+        addOptions.value.incrementDate = key === "incrementDate";
         return;
     }
 
@@ -563,10 +570,10 @@ function applyBatchAddSequentially(row, count) {
         const nextState = rowCheckState(nextRow, candidateRows);
         const { invalidCount } = getStateSummary(candidateRows);
 
-        console.log('[ticket-check]', {
+        console.log("[ticket-check]", {
             index: step,
             date: nextRow.date,
-            vehicle: nextRow.station?.vehicle ?? '未知車別',
+            vehicle: nextRow.station?.vehicle ?? "未知車別",
             periods: nextRow.periods,
             nextState,
             invalidCount,
@@ -577,16 +584,17 @@ function applyBatchAddSequentially(row, count) {
                 rowCheckState(item, candidateRows),
             )
         ) {
-            showToast('已達 2 筆負餘票，無法再新增');
+            showToast("已達 2 筆負餘票，無法再新增", "error");
             break;
         }
 
         generatedRows.push(nextRow);
         lastGeneratedDate = nextRow.date;
 
-        if (nextState !== 'valid') {
+        if (nextState !== "valid") {
             showToast(
-                `${nextRow.date} ${nextRow.periods.join(' / ')} ${nextRow.station?.vehicle ?? '未知車別'} 已加入，但需確認剩餘票`,
+                `${nextRow.date} ${nextRow.periods.join(" / ")} ${nextRow.station?.vehicle ?? "未知車別"} 已加入，但需確認剩餘票`,
+                "warning",
             );
         }
     }
@@ -598,10 +606,11 @@ function applyBatchAddSequentially(row, count) {
     addedRows.value = [...baseRows, ...generatedRows];
 
     const firstRow = generatedRows[0];
-    const periodText = firstRow.periods.join(' / ');
-    const vehicleText = firstRow.station?.vehicle ?? '未知車別';
+    const periodText = firstRow.periods.join(" / ");
+    const vehicleText = firstRow.station?.vehicle ?? "未知車別";
     showToast(
         `${firstRow.date} ${periodText} ${vehicleText} 已加入 ${generatedRows.length} 筆`,
+        "success",
     );
 }
 
@@ -612,7 +621,7 @@ function addSelectedRows(count) {
     );
 
     if (invalidLimitTriggered) {
-        showToast('已達 2 筆負餘票，無法再新增');
+        showToast("已達 2 筆負餘票，無法再新增", "error");
         return;
     }
 
@@ -633,6 +642,7 @@ function addSelectedRows(count) {
             rowCheckState(item, addedRows.value),
         )
     ) {
+        showToast("票數不足，請先修正後再繼續操作!", "error");
         return;
     }
 
@@ -648,9 +658,27 @@ function removeAddedRow(rowId) {
     <div class="flex h-screen flex-col overflow-hidden bg-background">
         <div
             v-if="toastVisible"
-            class="pointer-events-none fixed top-4 right-4 z-50 max-w-sm rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-lg dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200"
+            class="pointer-events-none fixed top-4 right-4 z-50 max-w-sm rounded-md border px-4 py-3 text-sm shadow-lg"
+            :class="
+                toastType === 'success'
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200'
+                    : toastType === 'warning'
+                      ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/80 dark:text-amber-200'
+                      : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/80 dark:text-red-200'
+            "
         >
-            {{ toastMessage }}
+            <div class="flex items-center gap-2">
+                <Check
+                    v-if="toastType === 'success'"
+                    class="h-4 w-4 shrink-0"
+                />
+                <AlertTriangle
+                    v-else-if="toastType === 'warning'"
+                    class="h-4 w-4 shrink-0"
+                />
+                <CircleAlert v-else class="h-4 w-4 shrink-0" />
+                <span>{{ toastMessage }}</span>
+            </div>
         </div>
 
         <!-- ========================================================= -->
