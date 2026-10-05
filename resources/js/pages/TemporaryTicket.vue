@@ -1,6 +1,6 @@
 <script setup>
 import axios from "axios";
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import {
     AlertTriangle,
     Check,
@@ -44,16 +44,19 @@ const createBlankRow = () => ({
 });
 
 const addedRows = ref([]);
+const ticketListScroller = ref(null);
 const addOptions = ref({
-    sameDate: false,
+    sameDate: true,
     fixedWeekday: false,
-    incrementDate: true,
+    incrementDate: false,
     skipWeekend: true,
 });
 const toastMessage = ref("");
 const toastType = ref("success");
 const toastVisible = ref(false);
 let toastTimeout = null;
+
+const SEAT_LIMIT_WARNING = "目前所選的車別或時段票數不足，請重新選擇。";
 
 const showToast = (message, type = "success") => {
     toastMessage.value = message;
@@ -69,6 +72,18 @@ const showToast = (message, type = "success") => {
         toastMessage.value = "";
         toastType.value = "success";
     }, 2500);
+};
+
+const rejectSeatLimitRow = async (row, message = SEAT_LIMIT_WARNING) => {
+    if (!row) {
+        return;
+    }
+
+    clearCurrentRowStation(row);
+
+    await nextTick();
+
+    showToast(message, "error");
 };
 
 const isBlankRow = (row) => {
@@ -283,6 +298,11 @@ const handleStudentSelected = async (row, value) => {
     await applyLastStudentTicketPreference(row);
 };
 
+const handleStationSelected = (row, value) => {
+    row.station = value;
+    row.selectionState = null;
+};
+
 const clearSelection = () => {
     resetToFreshRow();
 };
@@ -424,6 +444,25 @@ function getEffectiveRemainingForRow(row, rows = addedRows.value) {
             return false;
         }
 
+        if (item.id === row.id) {
+            return false;
+        }
+
+        if (item?.selectionState === "reset") {
+            return false;
+        }
+
+        const hasMissingRemainingData = item.periods.some((period) => {
+            const periodData = item.station?.[period];
+            const remaining = Number(periodData?.remaining ?? NaN);
+
+            return !periodData || !Number.isFinite(remaining);
+        });
+
+        if (hasMissingRemainingData) {
+            return false;
+        }
+
         return (
             item.date === row.date &&
             item.station.vehicle === row.station.vehicle &&
@@ -450,10 +489,6 @@ function getEffectiveRemainingForRow(row, rows = addedRows.value) {
         return remainingValue - matchingSelectedCount;
     });
 
-    if (!periodValues.length) {
-        return null;
-    }
-
     const finiteValues = periodValues.filter((value) => value !== null);
 
     if (!finiteValues.length) {
@@ -468,8 +503,25 @@ function rowRemainingValue(row) {
 }
 
 function rowCheckState(row, rows = addedRows.value) {
+    if (row?.selectionState === "reset") {
+        return "invalid";
+    }
+
     if (!row.date || !row.periods?.length || !row.station) {
-        return "disabled";
+        return row?.student || row?.date || row?.periods?.length
+            ? "invalid"
+            : "disabled";
+    }
+
+    const hasMissingRemainingData = row.periods.some((period) => {
+        const periodData = row.station?.[period];
+        const remaining = Number(periodData?.remaining ?? NaN);
+
+        return !periodData || !Number.isFinite(remaining);
+    });
+
+    if (hasMissingRemainingData) {
+        return "invalid";
     }
 
     const effectiveRemaining = getEffectiveRemainingForRow(row, rows);
@@ -550,80 +602,77 @@ function getGeneratedDateForIndex(baseDate, index, lastGeneratedDate = null) {
     return formatDateValue(candidate);
 }
 
-function applyBatchAddSequentially(row, count) {
-    const addCount = Number.isFinite(Number(count))
-        ? Math.max(1, Number(count))
-        : 1;
-    const generatedRows = [];
-    const baseRows = [...addedRows.value];
-    let lastGeneratedDate = baseRows.at(-1)?.date ?? null;
+function clearCurrentRowStation(row) {
+    if (!row) {
+        return;
+    }
 
-    for (let step = 0; step < addCount; step += 1) {
-        const nextRow = cloneRowTemplate(row);
-        nextRow.date = getGeneratedDateForIndex(
-            row.date,
-            step,
-            lastGeneratedDate,
-        );
+    row.station = null;
+    row.selectionState = "reset";
+}
 
-        const candidateRows = [...baseRows, ...generatedRows, nextRow];
-        const nextState = rowCheckState(nextRow, candidateRows);
-        const { invalidCount } = getStateSummary(candidateRows);
+function scrollTicketListToBottom() {
+    nextTick(() => {
+        if (!ticketListScroller.value) {
+            return;
+        }
 
-        console.log("[ticket-check]", {
-            index: step,
-            date: nextRow.date,
-            vehicle: nextRow.station?.vehicle ?? "未知車別",
-            periods: nextRow.periods,
-            nextState,
-            invalidCount,
+        const container = ticketListScroller.value;
+        container.scrollTo({
+            top: container.scrollHeight,
+            behavior: "smooth",
         });
+    });
+}
+
+function applyBatchAddSequentially(row, count) {
+    let addedCount = 0;
+
+    for (let step = 0; step < count; step += 1) {
+        const draftRow = currentDraftRow.value;
 
         if (
-            shouldShowAddLimitToast(candidateRows, (item) =>
-                rowCheckState(item, candidateRows),
-            )
+            !draftRow ||
+            !draftRow.student ||
+            !draftRow.station ||
+            !draftRow.date ||
+            !draftRow.periods?.length
         ) {
-            showToast("已達 2 筆負餘票，無法再新增", "error");
             break;
         }
 
-        generatedRows.push(nextRow);
-        lastGeneratedDate = nextRow.date;
-
-        if (nextState !== "valid") {
-            showToast(
-                `${nextRow.date} ${nextRow.periods.join(" / ")} ${nextRow.station?.vehicle ?? "未知車別"} 已加入，但需確認剩餘票`,
-                "warning",
-            );
+        if (
+            !canAllowDraftAdd(draftRow, addedRows.value, (item) =>
+                rowCheckState(item, addedRows.value),
+            )
+        ) {
+            rejectSeatLimitRow(draftRow);
+            break;
         }
+
+        const nextRow = cloneRowTemplate(draftRow);
+        const candidateRows = [...addedRows.value, nextRow];
+
+        // if (rowCheckState(nextRow, candidateRows) === "invalid") {
+        // alert(InvalidRowscount);
+        // rejectSeatLimitRow(nextRow);
+        // break;
+        // }
+
+        addedRows.value = candidateRows;
+        addedCount += 1;
+        scrollTicketListToBottom();
     }
 
-    if (!generatedRows.length) {
-        return;
+    if (addedCount > 0) {
+        showToast(`已加入 ${addedCount} 筆`, "success");
     }
-
-    addedRows.value = [...baseRows, ...generatedRows];
-
-    const firstRow = generatedRows[0];
-    const periodText = firstRow.periods.join(" / ");
-    const vehicleText = firstRow.station?.vehicle ?? "未知車別";
-    showToast(
-        `${firstRow.date} ${periodText} ${vehicleText} 已加入 ${generatedRows.length} 筆`,
-        "success",
-    );
 }
 
 function addSelectedRows(count) {
-    const invalidLimitTriggered = shouldShowAddLimitToast(
-        addedRows.value,
-        (item) => rowCheckState(item, addedRows.value),
-    );
-
-    if (invalidLimitTriggered) {
-        showToast("已達 2 筆負餘票，無法再新增", "error");
-        return;
-    }
+    const addCount = Number.isFinite(Number(count))
+        ? Math.max(1, Number(count))
+        : 1;
 
     const row = currentDraftRow.value;
 
@@ -634,6 +683,12 @@ function addSelectedRows(count) {
         !row.date ||
         !row.periods?.length
     ) {
+        showToast("請先選擇學生、日期、時段及站別", "error");
+        return;
+    }
+
+    if (rowCheckState(row, addedRows.value) === "invalid") {
+        rejectSeatLimitRow(row);
         return;
     }
 
@@ -642,11 +697,11 @@ function addSelectedRows(count) {
             rowCheckState(item, addedRows.value),
         )
     ) {
-        showToast("票數不足，請先修正後再繼續操作!", "error");
+        rejectSeatLimitRow(row);
         return;
     }
 
-    applyBatchAddSequentially(row, count);
+    applyBatchAddSequentially(row, addCount);
 }
 
 function removeAddedRow(rowId) {
@@ -701,7 +756,7 @@ function removeAddedRow(rowId) {
 
         <div class="flex min-h-0 w-full flex-1">
             <div class="flex min-h-0 w-1/2 flex-col">
-                <main class="flex-1 overflow-auto">
+                <main ref="ticketListScroller" class="flex-1 overflow-auto">
                     <div class="p-2 md:p-4">
                         <!-- ===================================================== -->
                         <!-- Selected Information -->
@@ -744,10 +799,18 @@ function removeAddedRow(rowId) {
                                     />
 
                                     <StationSelector
-                                        v-model="row.station"
+                                        :model-value="row.station"
+                                        @update:modelValue="
+                                            (value) =>
+                                                handleStationSelected(
+                                                    row,
+                                                    value,
+                                                )
+                                        "
                                         v-model:selected-periods="row.periods"
                                         :selected-date="row.date"
                                         :selected-rows="addedRows"
+                                        :current-row-id="row.id"
                                     />
 
                                     <div class="flex items-end">
@@ -890,13 +953,13 @@ function removeAddedRow(rowId) {
                     <div
                         class="rounded-lg border bg-background/90 p-3 shadow-sm backdrop-blur-sm"
                     >
-                        <div class="mb-2 flex items-center justify-between">
+                        <div class="mb-4 flex items-center justify-between">
                             <span
-                                class="text-xs font-medium text-muted-foreground"
+                                class="text-sm font-medium text-muted-foreground"
                             >
                                 購票價格
                             </span>
-                            <span class="text-xs font-semibold text-foreground">
+                            <span class="font-semibold text-foreground">
                                 總計 {{ formatCurrency(totalTicketAmount) }}
                             </span>
                         </div>
@@ -905,7 +968,7 @@ function removeAddedRow(rowId) {
                             <div
                                 v-for="item in studentPriceSummary"
                                 :key="item.student"
-                                class="flex items-center justify-between gap-3 text-sm"
+                                class="flex items-center justify-between gap-3"
                             >
                                 <span class="truncate text-foreground">
                                     {{ item.student }}

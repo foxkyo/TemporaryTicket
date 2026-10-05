@@ -1,16 +1,30 @@
-export function countInvalidRows(rows = [], rowCheckState = () => 'valid') {
+export function countInvalidRows(rows = [], rowCheckState = () => "valid") {
     return rows.filter((item) => {
         if (!item || !item.date || !item.station || !item.periods?.length) {
             return false;
         }
 
-        return rowCheckState(item) === 'invalid';
+        return rowCheckState(item) === "invalid";
     }).length;
+}
+
+export function hasNonPositiveRemaining(
+    row,
+    rows = [],
+    getRemaining = () => null,
+) {
+    if (!row || !row.date || !row.station || !row.periods?.length) {
+        return false;
+    }
+
+    const remaining = getRemaining(row, rows);
+
+    return Number.isFinite(remaining) && remaining < 0;
 }
 
 export function shouldShowAddLimitToast(
     rows = [],
-    rowCheckState = () => 'valid',
+    rowCheckState = () => "valid",
 ) {
     return countInvalidRows(rows, rowCheckState) > 1;
 }
@@ -18,7 +32,7 @@ export function shouldShowAddLimitToast(
 export function canAllowDraftAdd(
     draftRow,
     rows = [],
-    rowCheckState = () => 'valid',
+    rowCheckState = () => "valid",
 ) {
     if (
         !draftRow ||
@@ -37,7 +51,7 @@ export function canAllowDraftAdd(
         return false;
     }
 
-    if (draftState === 'invalid' && invalidCount >= 1) {
+    if (draftState === "invalid" && invalidCount >= 1) {
         return false;
     }
 

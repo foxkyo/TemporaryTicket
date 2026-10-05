@@ -1,15 +1,15 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
-import axios from 'axios';
-import { Lock, Check, ChevronRight } from 'lucide-vue-next';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { computed, ref, watch } from "vue";
+import axios from "axios";
+import { Lock, Check, ChevronRight } from "lucide-vue-next";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 
 const props = defineProps({
     modelValue: {
@@ -22,15 +22,19 @@ const props = defineProps({
     },
     selectedDate: {
         type: String,
-        default: '',
+        default: "",
     },
     selectedRows: {
         type: Array,
         default: () => [],
     },
+    currentRowId: {
+        type: [String, Number, null],
+        default: null,
+    },
 });
 
-const emit = defineEmits(['update:modelValue', 'update:selectedPeriods']);
+const emit = defineEmits(["update:modelValue", "update:selectedPeriods"]);
 
 const open = ref(false);
 const loading = ref(false);
@@ -39,7 +43,7 @@ const stationAreas = ref([]);
 const activePeriods = computed({
     get: () => props.selectedPeriods ?? [],
     set: (value) => {
-        emit('update:selectedPeriods', value);
+        emit("update:selectedPeriods", value);
     },
 });
 
@@ -57,7 +61,7 @@ function normalizePeriod(data) {
         ),
         total: Number(safeData.total ?? 0),
         remaining: Number(safeData.remaining ?? 0),
-        status: safeData.status ?? 'normal',
+        status: safeData.status ?? "normal",
         管制: Boolean(safeData.管制 ?? false),
     };
 }
@@ -65,8 +69,8 @@ function normalizePeriod(data) {
 function normalizeStation(station) {
     return {
         id: station?.id ?? null,
-        station: station?.station ?? station?.站別 ?? '',
-        boarding: station?.boarding ?? station?.乘車處 ?? '',
+        station: station?.station ?? station?.站別 ?? "",
+        boarding: station?.boarding ?? station?.乘車處 ?? "",
         one_way_amount: Number(
             station?.one_way_amount ?? station?.單趟金額 ?? 0,
         ),
@@ -80,7 +84,7 @@ function normalizeStation(station) {
 
 function normalizeVehicle(vehicle) {
     const normalized = {
-        vehicle: vehicle?.vehicle ?? vehicle?.車別 ?? '',
+        vehicle: vehicle?.vehicle ?? vehicle?.車別 ?? "",
         capacity: Number(vehicle?.capacity ?? 0),
         stations: Array.isArray(vehicle?.stations)
             ? vehicle.stations.map(normalizeStation)
@@ -97,7 +101,7 @@ function normalizeVehicle(vehicle) {
 
 function normalizeArea(area) {
     return {
-        area: area?.area ?? area?.地區 ?? '',
+        area: area?.area ?? area?.地區 ?? "",
         vehicles: Array.isArray(area?.vehicles)
             ? area.vehicles.map(normalizeVehicle)
             : [],
@@ -108,12 +112,12 @@ async function loadStations() {
     loading.value = true;
 
     try {
-        const response = await axios.get('/api/stations');
+        const response = await axios.get("/api/stations");
         const payload = Array.isArray(response.data) ? response.data : [];
 
         stationAreas.value = payload.map(normalizeArea);
     } catch (error) {
-        console.error('取得站別資料失敗：', error);
+        console.error("取得站別資料失敗：", error);
         stationAreas.value = [];
     } finally {
         loading.value = false;
@@ -131,7 +135,7 @@ async function openSelector() {
 
     if (!selectedArea.value) {
         const fallbackArea = stationAreas.value.find(
-            (area) => area.area === '嘉義縣市',
+            (area) => area.area === "嘉義縣市",
         );
 
         if (fallbackArea) {
@@ -185,14 +189,18 @@ function togglePeriod(period) {
 }
 
 function getVehiclePeriodData(vehicle, period) {
-    return period === '上學' ? vehicle?.上學 : vehicle?.放學;
+    return period === "上學" ? vehicle?.上學 : vehicle?.放學;
 }
 
 function getSelectedUsageForVehicle(vehicle, period) {
     const rows = Array.isArray(props.selectedRows) ? props.selectedRows : [];
-    const targetDate = props.selectedDate ?? '';
+    const targetDate = props.selectedDate ?? "";
 
     return rows.reduce((count, row) => {
+        if (props.currentRowId != null && row?.id === props.currentRowId) {
+            return count;
+        }
+
         if (!row || !row.date || !row.periods?.length || !row.station) {
             return count;
         }
@@ -270,32 +278,32 @@ function vehicleStatus(vehicle, period) {
     const data = getVehiclePeriodData(vehicle, period);
 
     if (!data) {
-        return 'normal';
+        return "normal";
     }
 
     if (data.total > vehicle.capacity) {
-        return 'danger';
+        return "danger";
     }
 
     if (vehicle.capacity - data.total <= 3) {
-        return 'warning';
+        return "warning";
     }
 
-    return 'normal';
+    return "normal";
 }
 
 function vehicleStatusClass(vehicle, period) {
     const status = vehicleStatus(vehicle, period);
 
-    if (status === 'danger') {
-        return 'text-red-600 dark:text-red-400';
+    if (status === "danger") {
+        return "text-red-600 dark:text-red-400";
     }
 
-    if (status === 'warning') {
-        return 'text-yellow-600 dark:text-yellow-400';
+    if (status === "warning") {
+        return "text-yellow-600 dark:text-yellow-400";
     }
 
-    return 'text-muted-foreground';
+    return "text-muted-foreground";
 }
 
 function selectArea(area) {
@@ -320,7 +328,7 @@ function selectStation(station) {
 
     selectedStation.value = station;
 
-    emit('update:modelValue', {
+    emit("update:modelValue", {
         ...station,
         periods: [...activePeriods.value],
         vehicle: selectedVehicle.value.vehicle,
@@ -336,20 +344,20 @@ function selectStation(station) {
 function formatPrice(amount) {
     const value = Number(amount ?? 0);
 
-    return `NT$ ${value.toLocaleString('zh-TW')}`;
+    return `NT$ ${value.toLocaleString("zh-TW")}`;
 }
 
 const selectedLabel = computed(() => {
     if (!props.modelValue) {
-        return '選擇站別';
+        return "選擇站別";
     }
 
     const periods = Array.isArray(props.modelValue.periods)
-        ? props.modelValue.periods.join('＋')
-        : '';
+        ? props.modelValue.periods.join("＋")
+        : "";
 
-    const station = props.modelValue.station ?? props.modelValue.站別 ?? '';
-    const vehicle = props.modelValue.vehicle ?? '';
+    const station = props.modelValue.station ?? props.modelValue.站別 ?? "";
+    const vehicle = props.modelValue.vehicle ?? "";
 
     // if (periods && station) {
     //     return `${vehicle}・${station}`;
@@ -359,30 +367,56 @@ const selectedLabel = computed(() => {
         return `${vehicle}・${station}`;
     }
 
-    return station || '選擇站別';
+    return station || "選擇站別";
 });
 
 const selectedAmount = computed(() => {
     if (!props.modelValue) {
-        return '';
+        return "";
     }
 
     return formatPrice(props.modelValue.one_way_amount ?? 0);
+});
+
+const selectorSummaryText = computed(() => {
+    if (!props.selectedDate && !activePeriods.value.length) {
+        return "請先確認日期與時段";
+    }
+
+    const formattedDate = props.selectedDate || "未選擇日期";
+    const weekday = formattedDate
+        ? new Date(`${formattedDate}T00:00:00`).toLocaleDateString("zh-TW", {
+              weekday: "short",
+          })
+        : "未選擇";
+
+    return `日期：${formattedDate}（${weekday}）｜搭車時段：${activePeriods.value.join(" / ") || "未選擇"}`;
 });
 
 const canSelectStation = computed(() => {
     return activePeriods.value.length > 0 && selectedVehicle.value !== null;
 });
 
+function resetLocalSelectionState() {
+    selectedArea.value = null;
+    selectedVehicle.value = null;
+    selectedStation.value = null;
+}
+
 watch(
     () => props.modelValue,
     () => {
+        if (!props.modelValue) {
+            resetLocalSelectionState();
+            return;
+        }
+
         if (open.value) {
             initializeSelection();
 
             if (!selectedArea.value) {
                 const fallbackArea = stationAreas.value.find(
-                    (area) => area.area === '嘉義縣市',
+                    (area) => area.area === "嘉義縣市",
                 );
 
                 if (fallbackArea) {
@@ -422,8 +456,13 @@ watch(
         <DialogContent
             class="!h-[90vh] !max-h-[90vh] !w-[90vw] !max-w-[90vw] p-0"
         >
-            <DialogHeader class="px-6 pt-6 pb-4">
+            <DialogHeader class="px-6 pt-6 pb-3">
                 <DialogTitle> 選擇乘車站別 </DialogTitle>
+                <div
+                    class="mt-2 rounded-md border border-muted bg-muted/20 px-3 py-2 text-sm text-muted-foreground"
+                >
+                    {{ selectorSummaryText }}
+                </div>
             </DialogHeader>
 
             <div class="flex min-h-0 flex-1 overflow-hidden px-6 pb-6">
