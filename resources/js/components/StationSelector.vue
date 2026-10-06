@@ -10,6 +10,10 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import {
+    getAdjustedVehiclePeriodRemaining,
+    getSelectedUsageForVehicle as getSelectedUsageForVehicleState,
+} from "@/lib/ticketSeatState.js";
 
 const props = defineProps({
     modelValue: {
@@ -125,6 +129,14 @@ async function loadStations() {
 }
 
 async function openSelector() {
+    const currentRow = Array.isArray(props.selectedRows)
+        ? props.selectedRows.find((row) => row?.id === props.currentRowId)
+        : null;
+
+    if (currentRow) {
+        currentRow.selectionState = "invalid";
+    }
+
     open.value = true;
 
     if (!stationAreas.value.length) {
@@ -194,49 +206,34 @@ function getVehiclePeriodData(vehicle, period) {
 
 function getSelectedUsageForVehicle(vehicle, period) {
     const rows = Array.isArray(props.selectedRows) ? props.selectedRows : [];
-    const targetDate = props.selectedDate ?? "";
 
-    return rows.reduce((count, row) => {
-        if (props.currentRowId != null && row?.id === props.currentRowId) {
-            return count;
-        }
-
-        if (!row || !row.date || !row.periods?.length || !row.station) {
-            return count;
-        }
-
-        if (row.date !== targetDate) {
-            return count;
-        }
-
-        if (row.station?.vehicle !== vehicle?.vehicle) {
-            return count;
-        }
-
-        if (!row.periods.includes(period)) {
-            return count;
-        }
-
-        return count + 1;
-    }, 0);
+    return getSelectedUsageForVehicleState(vehicle, rows, {
+        selectedDate: props.selectedDate ?? "",
+        currentRowId: props.currentRowId,
+        period,
+    });
 }
 
 function getAdjustedPeriodRemaining(vehicle, period) {
-    const data = getVehiclePeriodData(vehicle, period);
+    const rows = Array.isArray(props.selectedRows) ? props.selectedRows : [];
 
-    if (!data || !Number.isFinite(Number(data.remaining))) {
-        return null;
-    }
-
-    const baseRemaining = Number(data.remaining);
-    const selectedUsage = getSelectedUsageForVehicle(vehicle, period);
-
-    return Math.max(baseRemaining - selectedUsage, 0);
+    return getAdjustedVehiclePeriodRemaining(vehicle, period, rows, {
+        selectedDate: props.selectedDate ?? "",
+        currentRowId: props.currentRowId,
+    });
 }
 
 function vehicleAvailable(vehicle) {
     if (!activePeriods.value.length) {
         return false;
+    }
+
+    const isCurrentVehicleSelection =
+        Boolean(props.modelValue) &&
+        props.modelValue.vehicle === vehicle.vehicle;
+
+    if (isCurrentVehicleSelection) {
+        return true;
     }
 
     return activePeriods.value.every((period) => {

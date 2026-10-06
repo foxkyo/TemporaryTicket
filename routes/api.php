@@ -149,7 +149,7 @@ Route::get('/stations', function () {
     foreach ($stations as $station) {
         $vehicle = $station->車別;
 
-        if (!isset($vehicles[$vehicle])) {
+        if (! isset($vehicles[$vehicle])) {
             $vehicles[$vehicle] = [
                 'vehicle' => $vehicle,
                 'capacity' => (int) ($station->人數上限 ?? 0),
@@ -203,12 +203,12 @@ Route::get('/stations', function () {
             ? $ticket->時段
             : json_decode($ticket->時段, true);
 
-        if (!is_array($periods)) {
+        if (! is_array($periods)) {
             continue;
         }
 
         foreach ($periods as $period) {
-            if (!in_array($period, ['上學', '放學'], true)) {
+            if (! in_array($period, ['上學', '放學'], true)) {
                 continue;
             }
 
@@ -281,6 +281,136 @@ Route::get('/stations', function () {
     ]);
 });
 
+Route::get('/vehicle-initial-counts', function () {
+    $totals = Station::query()
+        ->select(['id', '車別', '上學人數', '放學人數'])
+        ->get()
+        ->groupBy('車別')
+        ->map(function ($rows, $vehicle) {
+            return [
+                'id' => (int) $rows->min('id'),
+                'vehicle' => $vehicle,
+                '車別' => $vehicle,
+                '上學人數' => (int) $rows->sum('上學人數'),
+                '放學人數' => (int) $rows->sum('放學人數'),
+            ];
+        })
+        ->values()
+        ->all();
+
+    usort($totals, fn (array $left, array $right) => ($left['id'] ?? 0) <=> ($right['id'] ?? 0));
+
+    return response()->json($totals);
+});
+
+Route::put('/vehicle-initial-counts/{vehicle}', function (string $vehicle) {
+    $data = request()->validate([
+        '上學人數' => ['required', 'integer', 'min:0'],
+        '放學人數' => ['required', 'integer', 'min:0'],
+    ]);
+
+    $stations = Station::query()
+        ->where('車別', $vehicle)
+        ->orderBy('id')
+        ->get();
+
+    if ($stations->isEmpty()) {
+        return response()->json([
+            'message' => '找不到對應車別',
+        ], 404);
+    }
+
+    $count = $stations->count();
+    $morningBase = intdiv((int) $data['上學人數'], $count);
+    $morningRemainder = (int) $data['上學人數'] % $count;
+    $afternoonBase = intdiv((int) $data['放學人數'], $count);
+    $afternoonRemainder = (int) $data['放學人數'] % $count;
+
+    $stations->each(function ($station, $index) use ($morningBase, $morningRemainder, $afternoonBase, $afternoonRemainder) {
+        $station->update([
+            '上學人數' => $morningBase + ($index < $morningRemainder ? 1 : 0),
+            '放學人數' => $afternoonBase + ($index < $afternoonRemainder ? 1 : 0),
+        ]);
+    });
+
+    return response()->json([
+        'vehicle' => $vehicle,
+        '車別' => $vehicle,
+        '上學人數' => (int) $data['上學人數'],
+        '放學人數' => (int) $data['放學人數'],
+    ]);
+});
+
+Route::post('/vehicle-initial-counts/import', function () {
+    $payload = request()->validate([
+        'rows' => ['required', 'array'],
+    ]);
+
+    $updated = [];
+
+    foreach ($payload['rows'] as $row) {
+        $normalized = [];
+
+        foreach ($row as $key => $value) {
+            $normalized[(string) $key] = $value;
+        }
+
+        $vehicle = trim((string) ($normalized['車別'] ?? $normalized['vehicle'] ?? $normalized['車種'] ?? ''));
+
+        if ($vehicle === '') {
+            continue;
+        }
+
+        $morning = $normalized['上學人數'] ?? $normalized['上學'] ?? $normalized['morning'] ?? null;
+        $afternoon = $normalized['放學人數'] ?? $normalized['放學'] ?? $normalized['afternoon'] ?? null;
+        $singleCount = $normalized['人數'] ?? $normalized['count'] ?? $normalized['total'] ?? null;
+
+        if ($morning === null && $singleCount !== null) {
+            $morning = $singleCount;
+        }
+
+        if ($afternoon === null && $singleCount !== null) {
+            $afternoon = $singleCount;
+        }
+
+        $morningValue = (int) ($morning ?? 0);
+        $afternoonValue = (int) ($afternoon ?? 0);
+
+        $stations = Station::query()
+            ->where('車別', $vehicle)
+            ->orderBy('id')
+            ->get();
+
+        if ($stations->isEmpty()) {
+            continue;
+        }
+
+        $count = $stations->count();
+        $morningBase = intdiv($morningValue, $count);
+        $morningRemainder = $morningValue % $count;
+        $afternoonBase = intdiv($afternoonValue, $count);
+        $afternoonRemainder = $afternoonValue % $count;
+
+        $stations->each(function ($station, $index) use ($morningBase, $morningRemainder, $afternoonBase, $afternoonRemainder) {
+            $station->update([
+                '上學人數' => $morningBase + ($index < $morningRemainder ? 1 : 0),
+                '放學人數' => $afternoonBase + ($index < $afternoonRemainder ? 1 : 0),
+            ]);
+        });
+
+        $updated[] = [
+            'vehicle' => $vehicle,
+            '車別' => $vehicle,
+            '上學人數' => $morningValue,
+            '放學人數' => $afternoonValue,
+        ];
+    }
+
+    return response()->json([
+        'updated' => $updated,
+    ]);
+});
+
 Route::get('/stations/availability', function () {
     $stations = Station::query()
         ->orderBy('id')
@@ -298,7 +428,7 @@ Route::get('/stations/availability', function () {
     foreach ($stations as $station) {
         $vehicle = $station->車別;
 
-        if (!isset($vehicles[$vehicle])) {
+        if (! isset($vehicles[$vehicle])) {
             $vehicles[$vehicle] = [
                 'first_id' => $station->id,
                 'vehicle' => $vehicle,
@@ -336,12 +466,12 @@ Route::get('/stations/availability', function () {
             ? $ticket->時段
             : json_decode($ticket->時段, true);
 
-        if (!is_array($periods)) {
+        if (! is_array($periods)) {
             continue;
         }
 
         foreach ($periods as $period) {
-            if (!in_array($period, ['上學', '放學'], true)) {
+            if (! in_array($period, ['上學', '放學'], true)) {
                 continue;
             }
 
@@ -457,7 +587,6 @@ Route::get('/stations/availability', function () {
     ]);
 });
 
-
 /*
 |--------------------------------------------------------------------------
 | Temporary Ticket Controls
@@ -496,7 +625,6 @@ Route::get('/temporary-ticket-controls', function () {
         collect($vehicles)->values()
     );
 });
-
 
 Route::get('/temporary-tickets', function () {
     $tickets = TemporaryTicket::query()

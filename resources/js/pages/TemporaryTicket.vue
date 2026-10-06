@@ -448,7 +448,10 @@ function getEffectiveRemainingForRow(row, rows = addedRows.value) {
             return false;
         }
 
-        if (item?.selectionState === "reset") {
+        if (
+            item?.selectionState === "reset" ||
+            item?.selectionState === "invalid"
+        ) {
             return false;
         }
 
@@ -503,7 +506,7 @@ function rowRemainingValue(row) {
 }
 
 function rowCheckState(row, rows = addedRows.value) {
-    if (row?.selectionState === "reset") {
+    if (row?.selectionState === "reset" || row?.selectionState === "invalid") {
         return "invalid";
     }
 
@@ -530,7 +533,7 @@ function rowCheckState(row, rows = addedRows.value) {
         return "valid";
     }
 
-    return effectiveRemaining < 0 ? "invalid" : "valid";
+    return effectiveRemaining <= 0 ? "invalid" : "valid";
 }
 
 function rowCanCheck(row) {
@@ -627,6 +630,7 @@ function scrollTicketListToBottom() {
 
 function applyBatchAddSequentially(row, count) {
     let addedCount = 0;
+    let workingRows = [...addedRows.value];
 
     for (let step = 0; step < count; step += 1) {
         const draftRow = currentDraftRow.value;
@@ -642,8 +646,8 @@ function applyBatchAddSequentially(row, count) {
         }
 
         if (
-            !canAllowDraftAdd(draftRow, addedRows.value, (item) =>
-                rowCheckState(item, addedRows.value),
+            !canAllowDraftAdd(draftRow, workingRows, (item) =>
+                rowCheckState(item, workingRows),
             )
         ) {
             rejectSeatLimitRow(draftRow);
@@ -651,15 +655,15 @@ function applyBatchAddSequentially(row, count) {
         }
 
         const nextRow = cloneRowTemplate(draftRow);
-        const candidateRows = [...addedRows.value, nextRow];
+        const candidateRows = [...workingRows, nextRow];
 
-        // if (rowCheckState(nextRow, candidateRows) === "invalid") {
-        // alert(InvalidRowscount);
-        // rejectSeatLimitRow(nextRow);
-        // break;
-        // }
+        if (rowCheckState(nextRow, candidateRows) === "invalid") {
+            rejectSeatLimitRow(draftRow);
+            break;
+        }
 
-        addedRows.value = candidateRows;
+        workingRows = candidateRows;
+        addedRows.value = workingRows;
         addedCount += 1;
         scrollTicketListToBottom();
     }
@@ -899,24 +903,6 @@ function removeAddedRow(rowId) {
                                     @click="addSelectedRows(7)"
                                 >
                                     新增 7 筆
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    @click="addSelectedRows(14)"
-                                >
-                                    新增 14 筆
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    @click="addSelectedRows(21)"
-                                >
-                                    新增 21 筆
                                 </Button>
 
                                 <Button

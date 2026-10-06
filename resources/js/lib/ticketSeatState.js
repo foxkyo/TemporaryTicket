@@ -1,6 +1,56 @@
-export function getEffectiveRemainingForRow(row, rows = []) {
+export function getSelectedUsageForVehicle(
+    vehicle,
+    rows = [],
+    { selectedDate = "", currentRowId = null, period = null } = {},
+) {
+    return (Array.isArray(rows) ? rows : []).reduce((count, row) => {
+        const isCurrentRow = currentRowId != null && row?.id === currentRowId;
+
+        if (row?.selectionState === "reset") {
+            return count;
+        }
+
+        if (row?.selectionState === "invalid" && !isCurrentRow) {
+            return count;
+        }
+
+        if (!row || !row.date || !row.periods?.length || !row.station) {
+            return count;
+        }
+
+        if (row.date !== selectedDate) {
+            return count;
+        }
+
+        if (row.station?.vehicle !== vehicle?.vehicle) {
+            return count;
+        }
+
+        if (period != null && !row.periods.includes(period)) {
+            return count;
+        }
+
+        return count + 1;
+    }, 0);
+}
+
+export function getEffectiveRemainingForRow(
+    row,
+    rows = [],
+    currentRowId = null,
+) {
     if (!row?.date || !row?.periods?.length || !row?.station) {
         return null;
+    }
+
+    const ignoredIds = new Set();
+
+    if (row?.id != null) {
+        ignoredIds.add(row.id);
+    }
+
+    if (currentRowId != null) {
+        ignoredIds.add(currentRowId);
     }
 
     const rowIndex = rows.findIndex((item) => item?.id === row.id);
@@ -11,11 +61,14 @@ export function getEffectiveRemainingForRow(row, rows = []) {
             return false;
         }
 
-        if (item.id === row.id) {
+        if (item.id != null && ignoredIds.has(item.id)) {
             return false;
         }
 
-        if (item?.selectionState === "reset") {
+        if (
+            item?.selectionState === "reset" ||
+            item?.selectionState === "invalid"
+        ) {
             return false;
         }
 
@@ -65,8 +118,30 @@ export function getEffectiveRemainingForRow(row, rows = []) {
     return Math.min(...finiteValues);
 }
 
-export function rowCheckState(row, rows = []) {
-    if (row?.selectionState === "reset") {
+export function getAdjustedVehiclePeriodRemaining(
+    vehicle,
+    period,
+    rows = [],
+    { selectedDate = "", currentRowId = null } = {},
+) {
+    const data = period === "上學" ? vehicle?.上學 : vehicle?.放學;
+
+    if (!data || !Number.isFinite(Number(data.remaining))) {
+        return null;
+    }
+
+    const baseRemaining = Number(data.remaining);
+    const selectedUsage = getSelectedUsageForVehicle(vehicle, rows, {
+        selectedDate,
+        currentRowId,
+        period,
+    });
+
+    return Math.max(baseRemaining - selectedUsage, 0);
+}
+
+export function rowCheckState(row, rows = [], currentRowId = null) {
+    if (row?.selectionState === "reset" || row?.selectionState === "invalid") {
         return "invalid";
     }
 
@@ -87,11 +162,15 @@ export function rowCheckState(row, rows = []) {
         return "invalid";
     }
 
-    const effectiveRemaining = getEffectiveRemainingForRow(row, rows);
+    const effectiveRemaining = getEffectiveRemainingForRow(
+        row,
+        rows,
+        currentRowId,
+    );
 
     if (effectiveRemaining === null) {
         return "valid";
     }
 
-    return effectiveRemaining < 0 ? "invalid" : "valid";
+    return effectiveRemaining <= 0 ? "invalid" : "valid";
 }
