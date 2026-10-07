@@ -13,6 +13,7 @@ import {
 import {
     getAdjustedVehiclePeriodRemaining,
     getSelectedUsageForVehicle as getSelectedUsageForVehicleState,
+    getVehiclePeriodTotal,
 } from "@/lib/ticketSeatState.js";
 
 const props = defineProps({
@@ -223,6 +224,15 @@ function getAdjustedPeriodRemaining(vehicle, period) {
     });
 }
 
+function vehiclePeriodTotal(vehicle, period) {
+    const rows = Array.isArray(props.selectedRows) ? props.selectedRows : [];
+
+    return getVehiclePeriodTotal(vehicle, period, rows, {
+        selectedDate: props.selectedDate ?? "",
+        currentRowId: props.currentRowId,
+    });
+}
+
 function vehicleAvailable(vehicle) {
     if (!activePeriods.value.length) {
         return false;
@@ -247,7 +257,7 @@ function vehicleAvailable(vehicle) {
             return false;
         }
 
-        if (data.total >= vehicle.capacity) {
+        if (vehiclePeriodTotal(vehicle, period) >= vehicle.capacity) {
             return false;
         }
 
@@ -278,11 +288,11 @@ function vehicleStatus(vehicle, period) {
         return "normal";
     }
 
-    if (data.total > vehicle.capacity) {
+    if (vehiclePeriodTotal(vehicle, period) > vehicle.capacity) {
         return "danger";
     }
 
-    if (vehicle.capacity - data.total <= 3) {
+    if (vehicle.capacity - vehiclePeriodTotal(vehicle, period) <= 3) {
         return "warning";
     }
 
@@ -424,6 +434,18 @@ watch(
     },
     { deep: true },
 );
+
+watch(open, (isOpen) => {
+    if (!isOpen) {
+        const currentRow = Array.isArray(props.selectedRows)
+            ? props.selectedRows.find((row) => row?.id === props.currentRowId)
+            : null;
+
+        if (currentRow && currentRow.selectionState === "invalid") {
+            currentRow.selectionState = null;
+        }
+    }
+});
 </script>
 
 <template>
@@ -512,7 +534,7 @@ watch(
                             請選擇地區
                         </div>
 
-                        <div v-else class="space-y-2">
+                        <div v-else class="space-y-1">
                             <button
                                 v-for="vehicle in selectedArea.vehicles"
                                 :key="vehicle.vehicle"
@@ -564,7 +586,7 @@ watch(
                                     </div>
                                 </div>
 
-                                <div class="mt-2 space-y-1 text-xs">
+                                <!-- <div class="mt-2 space-y-1 text-xs">
                                     <div
                                         v-if="activePeriods.includes('上學')"
                                         class="flex items-center justify-between"
@@ -579,11 +601,16 @@ watch(
                                                 )
                                             "
                                         >
-                                            {{ vehicle.上學.total }}
+                                            {{
+                                                vehiclePeriodTotal(
+                                                    vehicle,
+                                                    "上學",
+                                                )
+                                            }}
                                             /
                                             {{ vehicle.capacity }}
                                         </span>
-                                    </div>
+                                    </div> 
 
                                     <div
                                         v-if="activePeriods.includes('放學')"
@@ -599,12 +626,17 @@ watch(
                                                 )
                                             "
                                         >
-                                            {{ vehicle.放學.total }}
+                                            {{
+                                                vehiclePeriodTotal(
+                                                    vehicle,
+                                                    "放學",
+                                                )
+                                            }}
                                             /
                                             {{ vehicle.capacity }}
                                         </span>
                                     </div>
-                                </div>
+                                </div> -->
 
                                 <div
                                     v-if="

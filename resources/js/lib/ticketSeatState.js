@@ -1,16 +1,16 @@
 export function getSelectedUsageForVehicle(
     vehicle,
     rows = [],
-    { selectedDate = "", currentRowId = null, period = null } = {},
+    { selectedDate = '', currentRowId = null, period = null } = {},
 ) {
     return (Array.isArray(rows) ? rows : []).reduce((count, row) => {
         const isCurrentRow = currentRowId != null && row?.id === currentRowId;
 
-        if (row?.selectionState === "reset") {
+        if (row?.selectionState === 'reset') {
             return count;
         }
 
-        if (row?.selectionState === "invalid" && !isCurrentRow) {
+        if (row?.selectionState === 'invalid' && !isCurrentRow) {
             return count;
         }
 
@@ -32,6 +32,28 @@ export function getSelectedUsageForVehicle(
 
         return count + 1;
     }, 0);
+}
+
+export function getVehiclePeriodTotal(
+    vehicle,
+    period,
+    rows = [],
+    { selectedDate = '', currentRowId = null } = {},
+) {
+    const data = period === '上學' ? vehicle?.上學 : vehicle?.放學;
+
+    if (!data) {
+        return null;
+    }
+
+    return (
+        Number(data.total ?? 0) +
+        getSelectedUsageForVehicle(vehicle, rows, {
+            selectedDate,
+            currentRowId,
+            period,
+        })
+    );
 }
 
 export function getEffectiveRemainingForRow(
@@ -66,8 +88,8 @@ export function getEffectiveRemainingForRow(
         }
 
         if (
-            item?.selectionState === "reset" ||
-            item?.selectionState === "invalid"
+            item?.selectionState === 'reset' ||
+            item?.selectionState === 'invalid'
         ) {
             return false;
         }
@@ -122,9 +144,9 @@ export function getAdjustedVehiclePeriodRemaining(
     vehicle,
     period,
     rows = [],
-    { selectedDate = "", currentRowId = null } = {},
+    { selectedDate = '', currentRowId = null } = {},
 ) {
-    const data = period === "上學" ? vehicle?.上學 : vehicle?.放學;
+    const data = period === '上學' ? vehicle?.上學 : vehicle?.放學;
 
     if (!data || !Number.isFinite(Number(data.remaining))) {
         return null;
@@ -141,14 +163,14 @@ export function getAdjustedVehiclePeriodRemaining(
 }
 
 export function rowCheckState(row, rows = [], currentRowId = null) {
-    if (row?.selectionState === "reset" || row?.selectionState === "invalid") {
-        return "invalid";
+    if (row?.selectionState === 'reset' || row?.selectionState === 'invalid') {
+        return 'invalid';
     }
 
     if (!row?.date || !row?.periods?.length || !row?.station) {
         return row?.student || row?.date || row?.periods?.length
-            ? "invalid"
-            : "disabled";
+            ? 'invalid'
+            : 'disabled';
     }
 
     const hasMissingRemainingData = row.periods.some((period) => {
@@ -159,7 +181,7 @@ export function rowCheckState(row, rows = [], currentRowId = null) {
     });
 
     if (hasMissingRemainingData) {
-        return "invalid";
+        return 'invalid';
     }
 
     const effectiveRemaining = getEffectiveRemainingForRow(
@@ -169,8 +191,8 @@ export function rowCheckState(row, rows = [], currentRowId = null) {
     );
 
     if (effectiveRemaining === null) {
-        return "valid";
+        return 'valid';
     }
 
-    return effectiveRemaining <= 0 ? "invalid" : "valid";
+    return effectiveRemaining <= 0 ? 'invalid' : 'valid';
 }

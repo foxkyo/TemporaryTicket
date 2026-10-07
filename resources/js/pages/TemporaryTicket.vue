@@ -628,84 +628,103 @@ function scrollTicketListToBottom() {
     });
 }
 
-function applyBatchAddSequentially(row, count) {
-    let addedCount = 0;
-    let workingRows = [...addedRows.value];
-
-    for (let step = 0; step < count; step += 1) {
-        const draftRow = currentDraftRow.value;
-
-        if (
-            !draftRow ||
-            !draftRow.student ||
-            !draftRow.station ||
-            !draftRow.date ||
-            !draftRow.periods?.length
-        ) {
-            break;
-        }
-
-        if (
-            !canAllowDraftAdd(draftRow, workingRows, (item) =>
-                rowCheckState(item, workingRows),
-            )
-        ) {
-            rejectSeatLimitRow(draftRow);
-            break;
-        }
-
-        const nextRow = cloneRowTemplate(draftRow);
-        const candidateRows = [...workingRows, nextRow];
-
-        if (rowCheckState(nextRow, candidateRows) === "invalid") {
-            rejectSeatLimitRow(draftRow);
-            break;
-        }
-
-        workingRows = candidateRows;
-        addedRows.value = workingRows;
-        addedCount += 1;
-        scrollTicketListToBottom();
-    }
-
-    if (addedCount > 0) {
-        showToast(`已加入 ${addedCount} 筆`, "success");
-    }
-}
-
-function addSelectedRows(count) {
-    const addCount = Number.isFinite(Number(count))
-        ? Math.max(1, Number(count))
-        : 1;
-
-    const row = currentDraftRow.value;
+function addSingleRow({ suppressToast = false } = {}) {
+    const draftRow = currentDraftRow.value;
 
     if (
-        !row ||
-        !row.student ||
-        !row.station ||
-        !row.date ||
-        !row.periods?.length
+        !draftRow ||
+        !draftRow.student ||
+        !draftRow.date ||
+        !draftRow.periods?.length ||
+        !draftRow.station
     ) {
         showToast("請先選擇學生、日期、時段及站別", "error");
-        return;
+        return { success: false, seatLimitHit: false };
     }
 
-    if (rowCheckState(row, addedRows.value) === "invalid") {
-        rejectSeatLimitRow(row);
-        return;
+    if (rowCheckState(draftRow, addedRows.value) === "invalid") {
+        rejectSeatLimitRow(draftRow);
+        return { success: false, seatLimitHit: false };
     }
 
     if (
-        !canAllowDraftAdd(row, addedRows.value, (item) =>
+        !canAllowDraftAdd(draftRow, addedRows.value, (item) =>
             rowCheckState(item, addedRows.value),
         )
     ) {
-        rejectSeatLimitRow(row);
-        return;
+        if (!suppressToast) {
+            showToast("已有未完成或無效的票資料，請先修正後再新增", "warning");
+        }
+        return { success: false, seatLimitHit: false };
     }
 
-    applyBatchAddSequentially(row, addCount);
+    const lastGeneratedDate = addedRows.value.at(-1)?.date ?? draftRow.date;
+    const nextDate = getGeneratedDateForIndex(
+        draftRow.date,
+        0,
+        lastGeneratedDate,
+    );
+
+    const nextRow = cloneRowTemplate(draftRow);
+    nextRow.date = nextDate;
+
+    const candidateRows = [...addedRows.value, nextRow];
+
+    if (rowCheckState(nextRow, candidateRows) === "invalid") {
+        nextRow.station = null;
+        nextRow.selectionState = null;
+        addedRows.value = [...addedRows.value, nextRow];
+        scrollTicketListToBottom();
+        if (!suppressToast) {
+            showToast(
+                "票數已達上限，已新增此筆並清空站別，請重新選擇",
+                "warning",
+            );
+        }
+        return { success: true, seatLimitHit: true };
+    }
+
+    addedRows.value = candidateRows;
+    scrollTicketListToBottom();
+    if (!suppressToast) {
+        showToast("已加入 1 筆", "success");
+    }
+    return { success: true, seatLimitHit: false };
+}
+
+function addSelectedRows(count) {
+    const times = Number.isFinite(Number(count))
+        ? Math.max(1, Number(count))
+        : 1;
+
+    let addedCount = 0;
+    let hitLimit = false;
+
+    for (let step = 0; step < times; step += 1) {
+        const result = addSingleRow({ suppressToast: times > 1 });
+
+        if (!result.success) {
+            break;
+        }
+
+        addedCount += 1;
+
+        if (result.seatLimitHit) {
+            hitLimit = true;
+            break;
+        }
+    }
+
+    if (times > 1) {
+        if (hitLimit) {
+            showToast(
+                `已加入 ${addedCount} 筆（票數已達上限，已清空最後一筆站別）`,
+                "warning",
+            );
+        } else if (addedCount > 0) {
+            showToast(`已加入 ${addedCount} 筆`, "success");
+        }
+    }
 }
 
 function removeAddedRow(rowId) {
@@ -836,7 +855,7 @@ function removeAddedRow(rowId) {
                     </div>
                 </main>
 
-                <footer class="mt-auto shrink-0 border-t bg-background">
+                <div class="mt-auto shrink-0 border-t bg-background">
                     <div
                         class="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between md:p-4"
                     >
@@ -928,7 +947,7 @@ function removeAddedRow(rowId) {
                             </div>
                         </div>
                     </div>
-                </footer>
+                </div>
             </div>
 
             <div class="relative w-1/2 border-l bg-muted/20 p-4">
