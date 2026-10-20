@@ -12,9 +12,8 @@ function getStudentDisplay(ticket) {
     const student = ticket?.student ?? {};
     const className = ticket?.班級 ?? student?.班級 ?? '';
     const studentName = ticket?.姓名 ?? student?.姓名 ?? '未知學生';
-    const studentNumber = ticket?.學號 ?? student?.學號 ?? '';
 
-    return [className, studentName, studentNumber].filter(Boolean).join(' ');
+    return [className, studentName].filter(Boolean).join('　');
 }
 
 export function buildTicketPages(rows = []) {
@@ -45,12 +44,23 @@ export function buildTicketPages(rows = []) {
         for (let index = 0; index < orderedRows.length; index += 5) {
             const chunk = orderedRows.slice(index, index + 5);
 
+            // Calculate total price for this page
+            const totalPrice = chunk.reduce((sum, ticket) => {
+                const amount = ticket?.金額 ?? ticket?.amount ?? 0;
+                return sum + Number(amount);
+            }, 0);
+
+            // Get barcode from the first ticket (all tickets for same student should have same barcode)
+            const barcode = chunk[0]?.barcode ?? '';
+
             pages.push({
                 studentKey,
                 studentDisplay: studentKey,
                 pageNumber: Math.floor(index / 5) + 1,
                 totalPages,
                 items: chunk,
+                totalPrice,
+                barcode,
             });
         }
     }

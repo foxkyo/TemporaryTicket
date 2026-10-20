@@ -237,7 +237,7 @@ onMounted(() => {
 
         <Dialog v-model:open="studentModalOpen">
             <DialogContent
-                class="!flex !h-[90vh] !max-h-[90vh] !w-[90vw] !max-w-[90vw] flex-col items-stretch justify-start gap-0 p-0"
+                class="!flex !h-[90vh] !max-h-[90vh] !w-full !max-w-[90vw] flex-col items-stretch justify-start gap-0 p-0"
             >
                 <!-- Header -->
 

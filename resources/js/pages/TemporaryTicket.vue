@@ -15,6 +15,7 @@ import Tickets from "@/components/Tickets.vue";
 import TripActionGroup from "@/components/TripActionGroup.vue";
 import TripDateSelector from "@/components/TripDateSelector.vue";
 import TripPeriodButtonGroup from "@/components/TripPeriodButtonGroup.vue";
+import { buildTicketPages } from "@/lib/ticketPageGroups.js";
 import {
     canAllowDraftAdd,
     countInvalidRows,
@@ -189,9 +190,27 @@ const closePreview = () => {
 };
 
 const printPreview = () => {
-    // 關閉預覽後直接列印
-    closePreview();
+    // 直接列印
     window.print();
+};
+
+const directPrint = async () => {
+    try {
+        // 檢查是否在 Tauri 環境
+        if (window.__TAURI__) {
+            const { invoke } = window.__TAURI__.core;
+            // 使用相同的分頁邏輯
+            const pages = buildTicketPages(savedTickets.value);
+            // 呼叫 Tauri command 進行直印，傳送分頁後的數據
+            await invoke('print_tickets', { pages });
+        } else {
+            // 非 Tauri 環境，顯示提示
+            alert('直印功能僅在 Tauri 環境下可用');
+        }
+    } catch (error) {
+        console.error('直印失敗:', error);
+        alert('直印失敗: ' + error.message);
+    }
 };
 
 const resolveAutoAppliedStation = async (ticket) => {
@@ -763,7 +782,7 @@ function removeAddedRow(rowId) {
         <!-- Header -->
         <!-- ========================================================= -->
 
-        <header class="shrink-0 border-b">
+        <header class="shrink-0 border-b print:hidden">
             <div class="flex h-14 items-center justify-between px-4 md:px-6">
                 <div class="flex items-center gap-2">
                     <Ticket class="h-5 w-5" />
@@ -777,7 +796,7 @@ function removeAddedRow(rowId) {
         <!-- Main -->
         <!-- ========================================================= -->
 
-        <div class="flex min-h-0 w-full flex-1">
+        <div class="flex min-h-0 w-full flex-1 print:hidden">
             <div class="flex min-h-0 w-1/2 flex-col">
                 <main ref="ticketListScroller" class="flex-1 overflow-auto">
                     <div class="p-2 md:p-4">
@@ -944,6 +963,27 @@ function removeAddedRow(rowId) {
 
                                     確定
                                 </Button>
+
+                                <Button
+                                    v-if="savedTickets.length"
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="openPreview"
+                                >
+                                    <Ticket class="mr-2 h-4 w-4" />
+                                    預覽
+                                </Button>
+
+                                <Button
+                                    v-if="savedTickets.length"
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    @click="printPreview"
+                                >
+                                    直接列印
+                                </Button>
                             </div>
                         </div>
                     </div>
@@ -995,31 +1035,12 @@ function removeAddedRow(rowId) {
             </div>
         </div>
 
-        <div v-if="savedTickets.length" class="border-t bg-white p-4">
-            <div class="flex items-center justify-between gap-3">
-                <h2 class="text-lg font-semibold text-foreground">
-                    臨時車票預覽
-                </h2>
-
-                <div class="flex items-center gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        @click="openPreview"
-                    >
-                        檢視預覽
-                    </Button>
-                </div>
-            </div>
-        </div>
-
         <div
             v-if="previewVisible && savedTickets.length"
             class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
         >
             <div
-                class="flex h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border bg-white shadow-2xl"
+                class="flex h-[90vh] w-full max-w-90 flex-col overflow-hidden rounded-xl border bg-white shadow-2xl"
             >
                 <div
                     class="flex items-center justify-between border-b px-4 py-3"
@@ -1034,6 +1055,14 @@ function removeAddedRow(rowId) {
                     </div>
 
                     <div class="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            @click="directPrint"
+                        >
+                            直印
+                        </Button>
                         <Button
                             type="button"
                             variant="outline"
@@ -1057,6 +1086,11 @@ function removeAddedRow(rowId) {
                     <Tickets :tickets="savedTickets" />
                 </div>
             </div>
+        </div>
+
+        <!-- 列印專用區域 -->
+        <div v-if="savedTickets.length" class="hidden print:block p-4">
+            <Tickets :tickets="savedTickets" />
         </div>
 
         <!-- ========================================================= -->

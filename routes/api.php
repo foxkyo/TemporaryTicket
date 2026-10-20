@@ -121,6 +121,7 @@ Route::get('/temporary-tickets/latest-for-student', function () {
             '時段' => $periods,
             '車別' => $ticket->車別,
             '站別' => $ticket->站別,
+            'barcode' => $ticket->barcode,
             'station' => $ticket->station ? [
                 'id' => $ticket->station->id,
                 'vehicle' => $ticket->station->車別,
@@ -646,6 +647,7 @@ Route::get('/temporary-tickets', function () {
                     : (json_decode($ticket->時段, true) ?? []),
                 '車別' => $ticket->車別,
                 '站別' => $ticket->站別,
+                'barcode' => $ticket->barcode,
                 '金額' => (int) $ticket->金額,
                 'station' => $ticket->station ? [
                     'id' => $ticket->station->id,
@@ -703,6 +705,17 @@ Route::post('/temporary-tickets', function () {
         $date = Carbon\Carbon::parse($ticket['date']);
         $weekday = ['日', '一', '二', '三', '四', '五', '六'][$date->dayOfWeek];
 
+        // Generate barcode: base36 seconds from start of year (5 chars) + student ID
+        $now = Carbon\Carbon::now();
+        $seconds = (int) $now->copy()->startOfYear()->diffInSeconds($now);
+        $code = str_pad(
+            strtoupper(base_convert((string) $seconds, 10, 36)),
+            5,
+            '0',
+            STR_PAD_LEFT
+        );
+        $barcode = $code . '-' . $student['學號'];
+
         $record = TemporaryTicket::create([
             '學號' => (string) $student['學號'],
             '班級' => (string) $student['班級'],
@@ -714,7 +727,7 @@ Route::post('/temporary-tickets', function () {
             'station_id' => $station->id,
             '車別' => $station->車別,
             '站別' => $station->站別,
-            'barcode' => (string) Str::uuid(),
+            'barcode' => $barcode,
             '金額' => (int) $ticket['amount'],
         ]);
 
@@ -729,6 +742,7 @@ Route::post('/temporary-tickets', function () {
             '時段' => $record->時段,
             '車別' => $record->車別,
             '站別' => $record->站別,
+            'barcode' => $record->barcode,
             '金額' => $record->金額,
         ];
     }

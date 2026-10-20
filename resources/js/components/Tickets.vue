@@ -1,6 +1,7 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted, nextTick, ref, watch } from 'vue';
 import { buildTicketPages } from '@/lib/ticketPageGroups.js';
+import JsBarcode from 'jsbarcode';
 
 const props = defineProps({
     tickets: {
@@ -10,6 +11,43 @@ const props = defineProps({
 });
 
 const pages = computed(() => buildTicketPages(props.tickets));
+const barcodeRefs = ref([]);
+
+function formatPrice(price) {
+    if (price === null || price === undefined) {
+        return '0';
+    }
+    return Number(price).toLocaleString('zh-TW');
+}
+
+function renderBarcodes() {
+    nextTick(() => {
+        pages.value.forEach((page, index) => {
+            const canvas = barcodeRefs.value[index];
+            if (canvas && page.barcode) {
+                try {
+                    JsBarcode(canvas, page.barcode, {
+                        format: 'CODE39',
+                        displayValue: false,
+                        width: 2,
+                        height: 40,
+                        margin: 0,
+                    });
+                } catch (error) {
+                    console.error('Barcode generation error:', error, 'Barcode:', page.barcode);
+                }
+            }
+        });
+    });
+}
+
+onMounted(() => {
+    renderBarcodes();
+});
+
+watch(() => props.tickets, () => {
+    renderBarcodes();
+}, { deep: true });
 
 function getTicketDateLabel(ticket) {
     const rawDate = ticket?.日期 ?? ticket?.date ?? '';
@@ -37,32 +75,30 @@ function getPeriodText(ticket) {
 </script>
 
 <template>
-    <div class="space-y-6 bg-white p-2">
+    <div id="ticket-print-container" class="space-y-6 bg-white">
         <div
-            v-for="page in pages"
+            v-for="(page, index) in pages"
             :key="`${page.studentKey}-${page.pageNumber}`"
-            class="break-before-page rounded-md border border-slate-300 bg-white p-4 shadow-sm"
+            class="break-before-page bg-white"
         >
-            <header class="border-b border-slate-400 pb-2 text-center">
-                <div class="text-xl font-semibold tracking-wide">
+            <header class="pb-1 text-center">
+                <div class="text-xl font-bold tracking-wide">
                     {{ new Date().getFullYear() }} 協同中學臨時校車票
-                </div>
-                <div class="mt-1 text-sm text-slate-600">
-                    學生：{{ page.studentDisplay }}
                 </div>
             </header>
 
-            <div class="mt-3 overflow-hidden rounded border border-slate-300">
-                <table class="w-full border-collapse text-sm">
+            <div class="rounded border border-black">
+                <table class="w-full border-collapse text-sm font-bold">
                     <thead class="bg-slate-100">
                         <tr>
                             <th
-                                class="border-b border-slate-300 px-2 py-2 text-left font-semibold"
+                                class="border border-black px-1 text-left"
                             >
                                 日期 / 時段
                             </th>
+
                             <th
-                                class="border-b border-slate-300 px-2 py-2 text-left font-semibold"
+                                class="border border-black px-1 text-left"
                             >
                                 車別 / 站別
                             </th>
@@ -78,26 +114,29 @@ function getPeriodText(ticket) {
                             "
                         >
                             <td
-                                class="border-b border-slate-200 px-2 py-2 align-top"
+                                class="border border-black px-1 align-top"
                             >
                                 <div class="font-medium">
                                     {{ getTicketDateLabel(item) }}
                                 </div>
-                                <div class="mt-1 text-slate-700">
+
+                                <div class="">
                                     {{ getPeriodText(item) }}
                                 </div>
                             </td>
+
                             <td
-                                class="border-b border-slate-200 px-2 py-2 align-top"
+                                class="border border-black px-1 align-top"
                             >
-                                <div class="font-semibold">
+                                <div class="">
                                     {{
                                         item.車別 ??
                                         item.station?.vehicle ??
                                         '未選擇'
                                     }}
                                 </div>
-                                <div class="mt-1 text-slate-700">
+
+                                <div class="">
                                     {{
                                         item.站別 ??
                                         item.station?.station ??
@@ -111,19 +150,42 @@ function getPeriodText(ticket) {
             </div>
 
             <div
-                class="mt-3 text-left text-[13.5px] leading-relaxed whitespace-pre-wrap text-slate-700"
+                class="mt-3 text-left text-[13.5px] leading-relaxed whitespace-pre-wrap"
             >
-                <div class="text-lg font-semibold text-slate-900">
+                <div class="text-lg font-bold">
                     ★ 注意事項 ★
                 </div>
-                1. 本臨時車票為車票查驗之依據。 2. 未經總務處蓋章無效。
+
+                <div class="pl-3">1. 本臨時車票為車票查驗之依據。</div>
+                <div class="pl-3">2. 未經總務處蓋章無效。</div>
             </div>
 
             <footer
-                class="mt-4 border-t border-slate-400 pt-2 text-center text-xs text-slate-600"
+                class="border-t border-black pt-1 pb-4 font-bold text-sm"
             >
-                {{ page.studentDisplay }} · 第 {{ page.pageNumber }} /
-                {{ page.totalPages }} 頁
+                <div class="flex items-center justify-between">
+                    <div>
+                        搭乘者：{{ page.studentDisplay }}
+                    </div>
+
+                    <div>
+                        總票價：NT$ <span class="text-lg">{{ formatPrice(page.totalPrice) }}</span> 元
+                    </div>
+                </div>
+                <div class="flex flex-col items-center justify-center">
+                    <canvas
+                        :ref="(el) => { if (el) barcodeRefs[index] = el }"
+                        class="mx-auto max-w-full"
+                        style="min-height: 50px;"
+                    ></canvas>
+                    <div class="mt-1 text-xs">
+                        {{ page.barcode }}
+                    </div>
+                </div>
+                
+                <div class="mt-1 text-right" v-if="page.totalPages > 1">
+                    第 {{ page.pageNumber }} / {{ page.totalPages }} 頁
+                </div>
             </footer>
         </div>
     </div>
