@@ -8,10 +8,10 @@ import {
     Ticket,
     Trash2,
 } from "lucide-vue-next";
+import { router } from '@inertiajs/vue3';
 
 import StudentSelector from "@/components/StudentSelector.vue";
 import StationSelector from "@/components/StationSelector.vue";
-import Tickets from "@/components/Tickets.vue";
 import TripActionGroup from "@/components/TripActionGroup.vue";
 import TripDateSelector from "@/components/TripDateSelector.vue";
 import TripPeriodButtonGroup from "@/components/TripPeriodButtonGroup.vue";
@@ -178,9 +178,13 @@ const confirmTicket = async () => {
 
 const savedTickets = ref([]);
 const previewVisible = ref(false);
+const previewUrl = ref('');
 
 const openPreview = () => {
     if (savedTickets.value.length) {
+        // 將 tickets 數據編碼並傳遞給 TicketPrint 頁面
+        const ticketsJson = encodeURIComponent(JSON.stringify(savedTickets.value));
+        previewUrl.value = `/ticket-print?tickets=${ticketsJson}`;
         previewVisible.value = true;
     }
 };
@@ -1043,7 +1047,7 @@ function removeAddedRow(rowId) {
                 class="flex h-[90vh] w-full max-w-90 flex-col overflow-hidden rounded-xl border bg-white shadow-2xl"
             >
                 <div
-                    class="flex items-center justify-between border-b px-4 py-3"
+                    class="flex items-center justify-between border-b px-4 py-3 shrink-0"
                 >
                     <div>
                         <h3 class="text-lg font-semibold text-slate-900">
@@ -1082,8 +1086,13 @@ function removeAddedRow(rowId) {
                     </div>
                 </div>
 
-                <div class="flex-1 overflow-auto bg-slate-100 p-4">
-                    <Tickets :tickets="savedTickets" />
+                <div class="flex-1 overflow-auto bg-slate-100">
+                    <iframe
+                        v-if="previewUrl"
+                        :src="previewUrl"
+                        class="w-full h-full border-0"
+                        frameborder="0"
+                    ></iframe>
                 </div>
             </div>
         </div>
