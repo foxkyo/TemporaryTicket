@@ -597,7 +597,7 @@ onMounted(() => {
 
         <div v-else class="flex gap-4">
             <!-- 嘉義縣市 -->
-            <div class="min-w-0 flex-1 border">
+            <div class="min-w-0 flex-1 border bg-white">
                 <div
                     class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700"
                 >
@@ -718,7 +718,7 @@ onMounted(() => {
             </div>
 
             <!-- 其他 -->
-            <div class="min-w-0 flex-1 border">
+            <div class="min-w-0 flex-1 border bg-white">
                 <div
                     class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700"
                 >

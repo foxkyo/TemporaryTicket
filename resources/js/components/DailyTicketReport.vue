@@ -284,15 +284,19 @@ const generatePDF = async () => {
                                             stat, index
                                         ) in vehicle.stationStats"
                                         :key="index"
-                                        class="border-b border-slate-200"
+                                        class="border border-slate-200"
                                     >
-                                        <td class="px-2 py-0.5">
+                                        <td class="px-2 py-0.5 border">
                                             {{ stat.station }}
                                         </td>
-                                        <td class="px-2 py-0.5 text-right">
+                                        <td
+                                            class="px-2 py-0.5 text-right border"
+                                        >
                                             {{ stat.count }}
                                         </td>
-                                        <td class="px-2 py-0.5 text-right">
+                                        <td
+                                            class="px-2 py-0.5 text-right border"
+                                        >
                                             {{ stat.amount }}
                                         </td>
                                     </tr>
@@ -342,15 +346,19 @@ const generatePDF = async () => {
                                             stat, index
                                         ) in vehicle.stationStats"
                                         :key="index"
-                                        class="border-b border-slate-200"
+                                        class="border border-slate-200"
                                     >
-                                        <td class="px-2 py-0.5">
+                                        <td class="px-2 py-0.5 border">
                                             {{ stat.station }}
                                         </td>
-                                        <td class="px-2 py-0.5 text-right">
+                                        <td
+                                            class="px-2 py-0.5 text-right border"
+                                        >
                                             {{ stat.count }}
                                         </td>
-                                        <td class="px-2 py-0.5 text-right">
+                                        <td
+                                            class="px-2 py-0.5 text-right border"
+                                        >
                                             {{ stat.amount }}
                                         </td>
                                     </tr>
