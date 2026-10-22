@@ -18,9 +18,6 @@ return new class extends Migration
             $table->unsignedInteger('單趟金額')->default(0);
             $table->unsignedInteger('單月金額')->default(0);
 
-            $table->unsignedInteger('上學人數')->default(0);
-            $table->unsignedInteger('放學人數')->default(0);
-
         });
     }
 

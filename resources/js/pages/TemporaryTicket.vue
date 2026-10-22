@@ -1,68 +1,45 @@
-<script setup>
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, computed } from "vue";
 import axios from "axios";
-import { computed, nextTick, onMounted, ref } from "vue";
-import {
-    AlertTriangle,
-    Check,
-    CircleAlert,
-    Printer,
-    Ticket,
-    Trash2,
-} from "lucide-vue-next";
-import { router } from "@inertiajs/vue3";
+import { AlertTriangle, Check, CircleAlert } from "lucide-vue-next";
+import Switch from "@/components/ui/switch/Switch.vue";
 
-import StudentSelector from "@/components/StudentSelector.vue";
-import StationSelector from "@/components/StationSelector.vue";
-import Tickets from "@/components/Tickets.vue";
-import TripActionGroup from "@/components/TripActionGroup.vue";
-import TripDateSelector from "@/components/TripDateSelector.vue";
-import TripPeriodButtonGroup from "@/components/TripPeriodButtonGroup.vue";
-import { buildTicketPages } from "@/lib/ticketPageGroups.js";
-import {
-    canAllowDraftAdd,
-    countInvalidRows,
-    shouldShowAddLimitToast,
-} from "@/lib/ticketRowRules.js";
-
-import { Button } from "@/components/ui/button";
-
-const formatDateValue = (date) => {
-    const offset = date.getTimezoneOffset();
-    const normalized = new Date(date.getTime() - offset * 60 * 1000);
-
-    return normalized.toISOString().slice(0, 10);
+type VehicleData = {
+    id?: number;
+    vehicle: string;
+    車別: string;
+    搭車人數上限: number;
+    上學管制: boolean;
+    放學管制: boolean;
+    上學搭車人數: number;
+    放學搭車人數: number;
+    已繳款人數: number;
+    未繳款人數: number;
 };
 
-const selectedStudent = ref(null);
-const selectedStation = ref(null);
-const selectedDate = ref(formatDateValue(new Date()));
-const selectedPeriods = ref(["放學"]);
-const isPrinting = ref(false);
+type NumberField = "搭車人數上限" | "上學搭車人數" | "放學搭車人數";
+type ControlField = "上學管制" | "放學管制";
+type ToastType = "success" | "error" | "warning";
 
-const createBlankRow = () => ({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    student: null,
-    station: null,
-    date: formatDateValue(new Date()),
-    periods: ["放學"],
-});
+declare global {
+    interface Window {
+        XLSX?: any;
+    }
+}
 
-const addedRows = ref([]);
-const ticketListScroller = ref(null);
-const addOptions = ref({
-    sameDate: true,
-    fixedWeekday: false,
-    incrementDate: false,
-    skipWeekend: true,
-});
+const vehicles = ref<VehicleData[]>([]);
+const loading = ref(true);
+const importMessage = ref("");
+const importBusy = ref(false);
+const saving = ref<Record<string, boolean>>({});
+
+// ===== Toast（頁面內建） =====
 const toastMessage = ref("");
-const toastType = ref("success");
+const toastType = ref<ToastType>("success");
 const toastVisible = ref(false);
-let toastTimeout = null;
+let toastTimeout: ReturnType<typeof setTimeout> | null = null;
 
-const SEAT_LIMIT_WARNING = "目前所選的車別或時段票數不足，請重新選擇。";
-
-const showToast = (message, type = "success") => {
+const showToast = (message: string, type: ToastType = "success") => {
     toastMessage.value = message;
     toastType.value = type;
     toastVisible.value = true;
@@ -78,1179 +55,751 @@ const showToast = (message, type = "success") => {
     }, 2500);
 };
 
-const rejectSeatLimitRow = async (row, message = SEAT_LIMIT_WARNING) => {
-    if (!row) {
-        return;
+onBeforeUnmount(() => {
+    if (toastTimeout) {
+        clearTimeout(toastTimeout);
     }
+});
 
-    clearCurrentRowStation(row);
+// 將車別分為嘉義縣市和其他
+const categorizedVehicles = computed(() => {
+    const chiayi = vehicles.value.filter((v) => v.vehicle.startsWith("嘉"));
+    const others = vehicles.value.filter((v) => !v.vehicle.startsWith("嘉"));
+    return { chiayi, others };
+});
 
-    await nextTick();
-
-    showToast(message, "error");
-};
-
-const isBlankRow = (row) => {
-    return (
-        !row?.student &&
-        !row?.station &&
-        row?.date === formatDateValue(new Date()) &&
-        row?.periods?.length === 1 &&
-        row?.periods?.[0] === "放學"
+const sortVehiclesById = (list: VehicleData[]) => {
+    return [...list].sort(
+        (left, right) => Number(left.id ?? 0) - Number(right.id ?? 0),
     );
 };
 
-const resetToFreshRow = () => {
-    selectedStudent.value = null;
-    selectedStation.value = null;
-    selectedDate.value = formatDateValue(new Date());
-    selectedPeriods.value = ["放學"];
-    addedRows.value = [createBlankRow()];
+// 統一轉換布林值（相容 true/false、1/0、"1"/"0"、"true"/"false"、"是"/"否"）
+const toBool = (value: unknown): boolean => {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value === 1;
+    const str = String(value ?? "")
+        .trim()
+        .toLowerCase();
+    return str === "是" || str === "true" || str === "1" || str === "yes";
 };
 
-onMounted(() => {
-    resetToFreshRow();
-});
+const normalizeWorkbookRow = (rawRow: Record<string, unknown>) => {
+    const data = Object.entries(rawRow).reduce<Record<string, string | number>>(
+        (acc, [key, value]) => {
+            const normalizedKey = String(key)
+                .trim()
+                .replace(/[\s_]+/g, "");
+            const normalizedValue =
+                value === null || value === undefined
+                    ? ""
+                    : String(value).trim();
 
-const studentDisplayName = computed(() => {
-    if (!selectedStudent.value) {
-        return "";
-    }
+            acc[normalizedKey] = normalizedValue;
 
-    return `${selectedStudent.value.班級} ${selectedStudent.value.姓名}`.trim();
-});
+            return acc;
+        },
+        {},
+    );
 
-const stationDisplayName = computed(() => {
-    if (!selectedStation.value) {
-        return "";
-    }
+    const vehicle = String(
+        data["車別"] ??
+            data["vehicle"] ??
+            data["車種"] ??
+            data["Bus"] ??
+            data["車號"] ??
+            "",
+    ).trim();
 
-    return `${selectedStation.value.vehicle ?? ""} · ${selectedStation.value.station ?? ""}`.trim();
-});
+    const capacity =
+        data["人數上限"] ??
+        data["搭車人數上限"] ??
+        data["capacity"] ??
+        data["人數"] ??
+        data["count"] ??
+        0;
 
-const selectionSummary = computed(() => {
-    if (!selectedStudent.value && !selectedStation.value) {
-        return "請選擇學生及站別";
-    }
+    const morningControl = data["上學管制"] ?? false;
+    const afternoonControl = data["放學管制"] ?? false;
 
-    if (!selectedStudent.value) {
-        return selectedStation.value.station ?? "請選擇學生及站別";
-    }
+    const morningValue =
+        data["上學人數"] ??
+        data["上學搭車人數"] ??
+        data["上學"] ??
+        data["morning"] ??
+        data["上午"] ??
+        0;
 
-    if (!selectedStation.value) {
-        return studentDisplayName.value;
-    }
+    const afternoonValue =
+        data["放學人數"] ??
+        data["放學搭車人數"] ??
+        data["放學"] ??
+        data["afternoon"] ??
+        data["下午"] ??
+        0;
 
-    return `${studentDisplayName.value} · ${selectedStation.value.station}`;
-});
-
-const savedTickets = ref([]);
-const previewVisible = ref(false);
-const previewUrl = ref("/ticket-print");
-
-const isTauri = computed(() => {
-    return typeof window !== "undefined" && window.__TAURI__;
-});
-
-const openPreview = () => {
-    previewVisible.value = true;
-};
-
-const closePreview = () => {
-    previewVisible.value = false;
-};
-
-const printPreview = () => {
-    // 直接列印 /ticket-print 頁面
-    showToast("正在開啟列印預覽...", "info");
-    window.open("/ticket-print", "_blank");
-};
-
-const performSilentPrint = async () => {
-    isPrinting.value = true;
-    try {
-        console.log("開始靜默列印...");
-        console.log("環境檢查 - isTauri:", isTauri.value);
-        console.log(
-            "環境檢查 - __TAURI__:",
-            typeof window !== "undefined" ? window.__TAURI__ : "N/A",
-        );
-
-        showToast("正在準備列印...", "info");
-
-        // 檢查是否真的在 Tauri 環境中
-        if (!isTauri.value) {
-            throw new Error("靜默列印功能僅在 Tauri 桌面應用中可用");
-        }
-
-        showToast("正在載入印表機...", "info");
-
-        // 動態導入 tauri-plugin-printer v2
-        const { getPrinters, printHtml } = await import("tauri-plugin-printer");
-
-        console.log("Plugin 導入成功");
-
-        // 獲取系統印表機列表 - v2 API returns array directly
-        const printers = await getPrinters();
-        console.log("印表機列表:", printers);
-
-        if (!printers || printers.length === 0) {
-            throw new Error("未找到可用的印表機");
-        }
-
-        showToast("正在生成列印內容...", "info");
-
-        // 獲取票據頁面的 HTML 內容
-        const response = await fetch("/ticket-print");
-        const htmlContent = await response.text();
-
-        console.log("HTML 內容長度:", htmlContent.length);
-        console.log("使用印表機:", printers[0].name);
-
-        showToast("正在發送到印表機...", "info");
-
-        // 使用 printHtml v2 API 進行靜默列印
-        // html2canvas-pro 支援 oklch 顏色，不會出現錯誤
-        await printHtml(htmlContent, {
-            name: printers[0].name,
-            page_size: { width: 800, height: 1200 },
-        });
-
-        console.log("靜默列印成功");
-        showToast("列印已發送到印表機", "success");
-    } catch (error) {
-        console.error("靜默列印失敗:", error);
-        const errorMessage = error?.message || String(error);
-        console.error("錯誤詳情:", errorMessage);
-
-        // 如果是 plugin 錯誤，自動 fallback 到打開列印視窗
-        if (
-            errorMessage.includes("Plugin not found") ||
-            errorMessage.includes("not allowed")
-        ) {
-            console.log("靜默列印不可用，fallback 到打開列印視窗");
-            showToast("靜默列印不可用，改用標準列印", "info");
-
-            // 打開列印視窗並自動列印
-            const printWindow = window.open(
-                "/ticket-print?autoPrint=true",
-                "_blank",
-            );
-            if (printWindow) {
-                printWindow.onload = () => {
-                    setTimeout(() => {
-                        printWindow.print();
-                    }, 1500);
-                };
-            }
-        } else {
-            showToast("列印失敗: " + errorMessage, "error");
-            throw error; // 重新拋出錯誤，讓上層處理
-        }
-    } finally {
-        isPrinting.value = false;
-    }
-};
-
-const directPrint = async () => {
-    isPrinting.value = true;
-    try {
-        if (!isTauri.value) {
-            // 非 Tauri 環境，打開列印頁面並自動列印
-            showToast("正在開啟列印視窗...", "info");
-            const printWindow = window.open(
-                "/ticket-print?autoPrint=true",
-                "_blank",
-            );
-            if (printWindow) {
-                printWindow.onload = () => {
-                    setTimeout(() => {
-                        printWindow.print();
-                    }, 1500);
-                };
-            }
-            return;
-        }
-
-        // Tauri 環境，使用靜默列印
-        await performSilentPrint();
-    } catch (error) {
-        console.error("直印失敗:", error);
-        const errorMessage = error?.message || String(error);
-        showToast("直印失敗: " + errorMessage, "error");
-    } finally {
-        isPrinting.value = false;
-    }
-};
-
-const tauriPrint = async () => {
-    try {
-        if (!isTauri.value) {
-            console.error("Tauri列印功能僅在 Tauri 環境下可用");
-            return;
-        }
-
-        // Tauri 環境，使用靜默列印
-        await performSilentPrint();
-    } catch (error) {
-        console.error("Tauri列印失敗:", error);
-        const errorMessage = error?.message || String(error);
-        alert("Tauri列印失敗: " + errorMessage);
-    }
-};
-
-const confirmTicket = async () => {
-    const tickets = addedRows.value
-        .filter((row) => !isBlankRow(row))
-        .filter((row) => rowCheckState(row, addedRows.value) === "valid");
-
-    if (!tickets.length || totalTicketAmount.value <= 0) {
-        showToast("沒有可儲存的票資料", "error");
-        return;
-    }
-
-    try {
-        const { data } = await axios.post("/api/temporary-tickets", {
-            tickets: tickets.map((row) => ({
-                student: row.student,
-                station: row.station,
-                date: row.date,
-                periods: row.periods,
-                amount: getRowTicketAmount(row),
-            })),
-        });
-
-        savedTickets.value = data.tickets ?? [];
-        showToast(`已儲存 ${data.saved ?? tickets.length} 筆資料`, "success");
-        resetToFreshRow();
-
-        // 如果在 Tauri 環境下，嘗試使用靜默列印
-        if (isTauri.value) {
-            try {
-                await performSilentPrint();
-            } catch (printError) {
-                console.error("靜默列印失敗，fallback 到預覽:", printError);
-                // 如果靜默列印失敗，打開預覽
-                openPreview();
-            }
-        } else {
-            // 非 Tauri 環境，打開預覽
-            openPreview();
-        }
-    } catch (error) {
-        const message =
-            error?.response?.data?.message ||
-            error?.response?.data?.error ||
-            "儲存失敗";
-
-        showToast(message, "error");
-    }
-};
-
-const resolveAutoAppliedStation = async (ticket) => {
-    const fallbackStation = {
-        id: ticket?.station?.id ?? null,
-        vehicle: ticket?.車別 ?? ticket?.station?.vehicle ?? null,
-        station: ticket?.站別 ?? ticket?.station?.station ?? null,
-        boarding: ticket?.station?.boarding ?? null,
-        one_way_amount: Number(ticket?.station?.one_way_amount ?? 0),
-        one_month_amount: Number(ticket?.station?.one_month_amount ?? 0),
-        periods: Array.isArray(ticket?.時段) ? [...ticket.時段] : [],
-        ...ticket?.station,
+    return {
+        車別: vehicle,
+        搭車人數上限: Math.max(0, Math.min(99, Number(capacity || 0))),
+        上學管制: toBool(morningControl),
+        放學管制: toBool(afternoonControl),
+        上學搭車人數: Math.max(0, Math.min(99, Number(morningValue || 0))),
+        放學搭車人數: Math.max(0, Math.min(99, Number(afternoonValue || 0))),
+        已繳款人數: 0,
+        未繳款人數: 0,
     };
-
-    if (!fallbackStation.vehicle || !fallbackStation.station) {
-        return fallbackStation;
-    }
-
-    try {
-        const { data } = await axios.get("/api/stations");
-        const stationAreas = Array.isArray(data) ? data : [];
-
-        for (const area of stationAreas) {
-            const vehicle = (area?.vehicles ?? []).find(
-                (item) => item?.vehicle === fallbackStation.vehicle,
-            );
-
-            if (!vehicle) {
-                continue;
-            }
-
-            const matchedStation = (vehicle?.stations ?? []).find((item) => {
-                if (fallbackStation.id != null && item?.id != null) {
-                    return Number(item.id) === Number(fallbackStation.id);
-                }
-
-                return (
-                    String(item?.station ?? "") ===
-                        String(fallbackStation.station) &&
-                    String(item?.vehicle ?? "") ===
-                        String(fallbackStation.vehicle)
-                );
-            });
-
-            if (matchedStation) {
-                return {
-                    ...matchedStation,
-                    periods: Array.isArray(ticket?.時段)
-                        ? [...ticket.時段]
-                        : [],
-                    vehicle: matchedStation.vehicle ?? fallbackStation.vehicle,
-                    area: area?.area ?? null,
-                    上學: vehicle.上學,
-                    放學: vehicle.放學,
-                };
-            }
-        }
-    } catch (error) {
-        console.warn("查詢站別資料失敗，使用歷史資料備援", error);
-    }
-
-    return fallbackStation;
 };
 
-const applyLastStudentTicketPreference = async (row) => {
-    if (!row?.student) {
-        return;
-    }
+const fetchVehicles = async () => {
+    loading.value = true;
 
     try {
-        const { data } = await axios.get(
-            "/api/temporary-tickets/latest-for-student",
-            {
-                params: {
-                    學號: row.student.學號,
-                    班級: row.student.班級,
-                    姓名: row.student.姓名,
-                },
-            },
+        const { data } = await axios.get<VehicleData[]>(
+            "/api/vehicle-management",
         );
-
-        const ticket = data?.ticket;
-
-        if (!ticket) {
-            return;
-        }
-
-        if (Array.isArray(ticket.時段) && ticket.時段.length) {
-            row.periods = [...ticket.時段];
-        }
-
-        if (ticket.車別 || ticket.站別 || ticket.station) {
-            row.station = await resolveAutoAppliedStation(ticket);
-        }
-
-        showToast(`已套用歷史購票紀錄`, "success");
+        vehicles.value = sortVehiclesById(
+            data.map((vehicle) => ({
+                ...vehicle,
+                id: Number(vehicle.id ?? 0),
+                搭車人數上限: Math.min(99, Number(vehicle.搭車人數上限 ?? 0)),
+                上學管制: toBool(vehicle.上學管制),
+                放學管制: toBool(vehicle.放學管制),
+                上學搭車人數: Math.min(99, Number(vehicle.上學搭車人數 ?? 0)),
+                放學搭車人數: Math.min(99, Number(vehicle.放學搭車人數 ?? 0)),
+                已繳款人數: Math.min(99, Number(vehicle.已繳款人數 ?? 0)),
+                未繳款人數: Math.min(99, Number(vehicle.未繳款人數 ?? 0)),
+            })),
+        );
     } catch (error) {
-        console.warn("套用歷史票資料失敗", error);
+        importMessage.value = "載入車輛資料失敗，請稍後再試。";
+        showToast("載入車輛資料失敗，請稍後再試。", "error");
+        console.error(error);
+    } finally {
+        loading.value = false;
     }
 };
 
-const handleStudentSelected = async (row, value) => {
-    row.student = value;
-    await applyLastStudentTicketPreference(row);
-};
-
-const handleStationSelected = (row, value) => {
-    row.station = value;
-    row.selectionState = null;
-};
-
-const clearSelection = () => {
-    resetToFreshRow();
-};
-
-const handleTripCheck = () => {
-    console.log({
-        date: selectedDate.value,
-        periods: selectedPeriods.value,
-        vehicle: selectedStation.value?.vehicle,
-    });
-};
-
-const canConfirm = computed(() => {
-    const rows = addedRows.value.filter((row) => !isBlankRow(row));
-
-    if (!rows.length || totalTicketAmount.value <= 0) {
+const saveVehicle = async (
+    vehicle: VehicleData,
+    field?: keyof VehicleData,
+    booleanValue?: boolean,
+): Promise<boolean> => {
+    if (!vehicle.vehicle) {
         return false;
     }
 
-    return countInvalidRows(rows, (row) => rowCheckState(row, rows)) === 0;
-});
-
-const canCheck = computed(() => {
-    return Boolean(
-        selectedDate.value &&
-        selectedPeriods.value.length &&
-        selectedStation.value,
-    );
-});
-
-const stationCheckState = computed(() => {
-    if (
-        !selectedDate.value ||
-        !selectedPeriods.value.length ||
-        !selectedStation.value
-    ) {
-        return "disabled";
-    }
-
-    return "valid";
-});
-
-const cloneRowTemplate = (row) => ({
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    student: row.student ? { ...row.student } : null,
-    station: row.station ? { ...row.station } : null,
-    date: row.date,
-    periods: [...row.periods],
-});
-
-const getLatestTemplateRow = () => {
-    const nonBlankRows = addedRows.value.filter((row) => !isBlankRow(row));
-
-    return nonBlankRows.at(-1) ?? null;
-};
-
-const currentDraftRow = computed(() => getLatestTemplateRow());
-
-const getStateSummary = (rows = addedRows.value) => {
-    const realRows = rows.filter((item) => !isBlankRow(item));
-    const validCount = realRows.filter(
-        (item) => rowCheckState(item, rows) === "valid",
-    ).length;
-    const invalidCount = countInvalidRows(realRows, (item) =>
-        rowCheckState(item, rows),
-    );
-
-    return { validCount, invalidCount };
-};
-
-const canClearSelection = computed(() => {
-    return addedRows.value.some((row) => !isBlankRow(row));
-});
-
-const validRows = computed(() => {
-    return addedRows.value.filter(
-        (row) =>
-            !isBlankRow(row) && rowCheckState(row, addedRows.value) === "valid",
-    );
-});
-
-function getRowTicketAmount(row) {
-    if (!row?.station || !row?.student) {
-        return 0;
-    }
-
-    const pricePerTrip = Number(row.station?.one_way_amount ?? 0);
-    const tripCount = Array.isArray(row.periods) ? row.periods.length : 0;
-
-    return pricePerTrip * Math.max(tripCount, 1);
-}
-
-function getStudentPriceSummary(rows = []) {
-    const grouped = new Map();
-
-    rows.forEach((row) => {
-        if (!row?.student || rowCheckState(row, rows) !== "valid") {
-            return;
-        }
-
-        const studentKey =
-            `${row.student.班級 ?? ""} ${row.student.姓名 ?? ""}`.trim();
-        const studentName = studentKey || "未知學生";
-        const subtotal = getRowTicketAmount(row);
-
-        grouped.set(studentName, (grouped.get(studentName) ?? 0) + subtotal);
-    });
-
-    return Array.from(grouped.entries()).map(([student, total]) => ({
-        student,
-        total,
-    }));
-}
-
-const studentPriceSummary = computed(() => {
-    return getStudentPriceSummary(validRows.value);
-});
-
-const totalTicketAmount = computed(() => {
-    return studentPriceSummary.value.reduce((sum, item) => sum + item.total, 0);
-});
-
-function formatCurrency(value) {
-    const amount = Number(value ?? 0);
-
-    return `NT$ ${amount.toLocaleString("zh-TW")}`;
-}
-
-function getEffectiveRemainingForRow(row, rows = addedRows.value) {
-    if (!row.date || !row.periods?.length || !row.station) {
-        return null;
-    }
-
-    const rowIndex = rows.findIndex((item) => item?.id === row.id);
-    const evaluationRows = rowIndex >= 0 ? rows.slice(0, rowIndex + 1) : [row];
-
-    const relevantRows = evaluationRows.filter((item) => {
-        if (!item || !item.date || !item.station || !item.periods?.length) {
-            return false;
-        }
-
-        if (item.id === row.id) {
-            return false;
-        }
-
-        if (
-            item?.selectionState === "reset" ||
-            item?.selectionState === "invalid"
-        ) {
-            return false;
-        }
-
-        const hasMissingRemainingData = item.periods.some((period) => {
-            const periodData = item.station?.[period];
-            const remaining = Number(periodData?.remaining ?? NaN);
-
-            return !periodData || !Number.isFinite(remaining);
-        });
-
-        if (hasMissingRemainingData) {
-            return false;
-        }
-
-        return (
-            item.date === row.date &&
-            item.station.vehicle === row.station.vehicle &&
-            item.periods.some((period) => row.periods.includes(period))
+    // 驗證人數上限 >= 上學人數 且 人數上限 >= 放學人數
+    if (vehicle.搭車人數上限 < vehicle.上學搭車人數) {
+        showToast(
+            `${vehicle.vehicle} 人數上限不能小於上學人數 (${vehicle.上學搭車人數})`,
+            "error",
         );
-    });
+        return false;
+    }
 
-    const periodValues = row.periods.map((period) => {
-        const periodData = row.station?.[period];
-        const remainingValue = Number(periodData?.remaining ?? NaN);
+    if (vehicle.搭車人數上限 < vehicle.放學搭車人數) {
+        showToast(
+            `${vehicle.vehicle} 人數上限不能小於放學人數 (${vehicle.放學搭車人數})`,
+            "error",
+        );
+        return false;
+    }
 
-        if (!periodData || !Number.isFinite(remainingValue)) {
-            return null;
+    saving.value[vehicle.vehicle] = true;
+
+    try {
+        const payload = {
+            搭車人數上限: Math.max(
+                0,
+                Math.min(99, Number(vehicle.搭車人數上限 || 0)),
+            ),
+            上學管制: toBool(vehicle.上學管制),
+            放學管制: toBool(vehicle.放學管制),
+            上學搭車人數: Math.max(
+                0,
+                Math.min(99, Number(vehicle.上學搭車人數 || 0)),
+            ),
+            放學搭車人數: Math.max(
+                0,
+                Math.min(99, Number(vehicle.放學搭車人數 || 0)),
+            ),
+        };
+
+        const { data } = await axios.put(
+            `/api/vehicle-management/${encodeURIComponent(vehicle.vehicle)}`,
+            payload,
+        );
+
+        vehicle.搭車人數上限 = Number(
+            data.搭車人數上限 ?? vehicle.搭車人數上限,
+        );
+        vehicle.上學管制 = toBool(data.上學管制 ?? vehicle.上學管制);
+        vehicle.放學管制 = toBool(data.放學管制 ?? vehicle.放學管制);
+        vehicle.上學搭車人數 = Number(
+            data.上學搭車人數 ?? vehicle.上學搭車人數,
+        );
+        vehicle.放學搭車人數 = Number(
+            data.放學搭車人數 ?? vehicle.放學搭車人數,
+        );
+
+        // 如果是布林欄位變更，顯示成功 toast
+        if (field && booleanValue !== undefined) {
+            const controlName = field === "上學管制" ? "上學管制" : "放學管制";
+            const status = booleanValue ? "已開啟" : "已關閉";
+            showToast(`${vehicle.vehicle} ${controlName} ${status}`, "success");
+        } else {
+            showToast(`${vehicle.vehicle} 已同步更新。`, "success");
         }
 
-        const matchingSelectedCount = relevantRows.reduce((count, item) => {
-            if (!item.periods.includes(period)) {
-                return count;
-            }
-
-            return count + 1;
-        }, 0);
-
-        return remainingValue - matchingSelectedCount;
-    });
-
-    const finiteValues = periodValues.filter((value) => value !== null);
-
-    if (!finiteValues.length) {
-        return null;
+        return true;
+    } catch (error) {
+        showToast(`${vehicle.vehicle} 更新失敗，請重新整理後再試。`, "error");
+        console.error(error);
+        return false;
+    } finally {
+        saving.value[vehicle.vehicle] = false;
     }
+};
 
-    return Math.min(...finiteValues);
-}
+/**
+ * 數字欄位輸入處理（人數上限 / 上學人數 / 放學人數）
+ * - 輸入框不使用 v-model，改由這裡統一控制，才能在驗證失敗時正確還原原值
+ * - 違反「人數上限 >= 上學人數」或「人數上限 >= 放學人數」時，自動還原並顯示 toast
+ */
+const handleNumberInput = (
+    vehicle: VehicleData,
+    field: NumberField,
+    event: Event,
+) => {
+    const el = event.target as HTMLInputElement;
+    const originalValue = vehicle[field];
 
-function rowRemainingValue(row) {
-    return getEffectiveRemainingForRow(row, addedRows.value);
-}
+    const raw = Number(el.value || 0);
+    const next = Number.isFinite(raw) ? Math.max(0, Math.min(99, raw)) : 0;
 
-function rowCheckState(row, rows = addedRows.value) {
-    if (row?.selectionState === "reset" || row?.selectionState === "invalid") {
-        return "invalid";
-    }
+    const revert = () => {
+        vehicle[field] = originalValue;
+        el.value = String(originalValue);
+    };
 
-    if (!row.date || !row.periods?.length || !row.station) {
-        return row?.student || row?.date || row?.periods?.length
-            ? "invalid"
-            : "disabled";
-    }
+    // 以「修改後」的數值進行驗證
+    const capacity = field === "搭車人數上限" ? next : vehicle.搭車人數上限;
+    const morning = field === "上學搭車人數" ? next : vehicle.上學搭車人數;
+    const afternoon = field === "放學搭車人數" ? next : vehicle.放學搭車人數;
 
-    const hasMissingRemainingData = row.periods.some((period) => {
-        const periodData = row.station?.[period];
-        const remaining = Number(periodData?.remaining ?? NaN);
-
-        return !periodData || !Number.isFinite(remaining);
-    });
-
-    if (hasMissingRemainingData) {
-        return "invalid";
-    }
-
-    const effectiveRemaining = getEffectiveRemainingForRow(row, rows);
-
-    if (effectiveRemaining === null) {
-        return "valid";
-    }
-
-    return effectiveRemaining <= 0 ? "invalid" : "valid";
-}
-
-function rowCanCheck(row) {
-    return Boolean(
-        row.date &&
-        row.periods?.length &&
-        row.student &&
-        row.station &&
-        rowCheckState(row) === "valid",
-    );
-}
-
-function toggleAddOption(key) {
-    if (
-        key === "sameDate" ||
-        key === "fixedWeekday" ||
-        key === "incrementDate"
-    ) {
-        addOptions.value.sameDate = key === "sameDate";
-        addOptions.value.fixedWeekday = key === "fixedWeekday";
-        addOptions.value.incrementDate = key === "incrementDate";
+    if (capacity < morning) {
+        showToast(
+            `${vehicle.vehicle} 人數上限不能小於上學人數 (${morning})`,
+            "error",
+        );
+        revert();
         return;
     }
 
-    addOptions.value[key] = !addOptions.value[key];
-}
-
-function getGeneratedDateForIndex(baseDate, index, lastGeneratedDate = null) {
-    const base = new Date(`${baseDate}T00:00:00`);
-    const offset = index + 1;
-    let candidate = new Date(base);
-
-    if (addOptions.value.sameDate) {
-        return formatDateValue(candidate);
-    }
-
-    if (addOptions.value.fixedWeekday) {
-        candidate.setDate(base.getDate() + offset * 7);
-    } else if (addOptions.value.incrementDate) {
-        candidate.setDate(base.getDate() + offset);
-    }
-
-    const lastDate = lastGeneratedDate
-        ? new Date(`${lastGeneratedDate}T00:00:00`)
-        : null;
-
-    if (lastDate && candidate <= lastDate) {
-        candidate = new Date(lastDate);
-        candidate.setDate(candidate.getDate() + 1);
-    }
-
-    if (addOptions.value.skipWeekend) {
-        while (candidate.getDay() === 0 || candidate.getDay() === 6) {
-            candidate.setDate(candidate.getDate() + 1);
-        }
-    }
-
-    if (lastDate && candidate <= lastDate) {
-        candidate = new Date(lastDate);
-        candidate.setDate(candidate.getDate() + 1);
-
-        if (addOptions.value.skipWeekend) {
-            while (candidate.getDay() === 0 || candidate.getDay() === 6) {
-                candidate.setDate(candidate.getDate() + 1);
-            }
-        }
-    }
-
-    return formatDateValue(candidate);
-}
-
-function clearCurrentRowStation(row) {
-    if (!row) {
+    if (capacity < afternoon) {
+        showToast(
+            `${vehicle.vehicle} 人數上限不能小於放學人數 (${afternoon})`,
+            "error",
+        );
+        revert();
         return;
     }
 
-    row.station = null;
-    row.selectionState = "reset";
-}
+    // 超出範圍被修正（例如輸入 150 -> 99）時，同步輸入框顯示
+    if (el.value !== String(next)) {
+        el.value = String(next);
+    }
 
-function scrollTicketListToBottom() {
-    nextTick(() => {
-        if (!ticketListScroller.value) {
+    vehicle[field] = next;
+
+    void saveVehicle(vehicle).then((success) => {
+        if (!success) {
+            // 儲存失敗，恢復原始值
+            revert();
+        }
+    });
+};
+
+// 管制開關變更
+const handleSwitchChange = (
+    vehicle: VehicleData,
+    field: ControlField,
+    value: boolean,
+) => {
+    const originalValue = vehicle[field];
+    const nextValue = Boolean(value);
+
+    vehicle[field] = nextValue;
+
+    void saveVehicle(vehicle, field, nextValue).then((success) => {
+        if (!success) {
+            // 儲存失敗，恢復原始值（Switch 以 modelValue 綁定，會跟著切回去）
+            vehicle[field] = originalValue;
+        }
+    });
+};
+
+const loadXlsxLibrary = async () => {
+    if (window.XLSX) {
+        return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+        const existing = document.querySelector<HTMLScriptElement>(
+            "script[data-xlsx-loader]",
+        );
+
+        if (existing) {
+            existing.addEventListener("load", () => resolve(), { once: true });
+            existing.addEventListener(
+                "error",
+                () => reject(new Error("xlsx 載入失敗")),
+                { once: true },
+            );
             return;
         }
 
-        const container = ticketListScroller.value;
-        container.scrollTo({
-            top: container.scrollHeight,
-            behavior: "smooth",
-        });
+        const script = document.createElement("script");
+        script.src =
+            "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+        script.setAttribute("data-xlsx-loader", "true");
+        script.addEventListener("load", () => resolve(), { once: true });
+        script.addEventListener(
+            "error",
+            () => reject(new Error("xlsx 載入失敗")),
+            { once: true },
+        );
+        document.head.appendChild(script);
     });
-}
+};
 
-function addSingleRow({ suppressToast = false } = {}) {
-    const draftRow = currentDraftRow.value;
+const exportWorkbook = (
+    rows: Record<string, string | number | boolean>[],
+    filename: string,
+) => {
+    void loadXlsxLibrary().then(() => {
+        const workbook = window.XLSX.utils.book_new();
+        const sheet = window.XLSX.utils.json_to_sheet(rows, {
+            header: [
+                "車別",
+                "人數上限",
+                "上學管制",
+                "放學管制",
+                "上學人數",
+                "放學人數",
+            ],
+        });
+        window.XLSX.utils.book_append_sheet(workbook, sheet, "車別管理");
+        window.XLSX.writeFile(workbook, filename);
+    });
+};
 
-    if (
-        !draftRow ||
-        !draftRow.student ||
-        !draftRow.date ||
-        !draftRow.periods?.length ||
-        !draftRow.station
-    ) {
-        showToast("請先選擇學生、日期、時段及站別", "error");
-        return { success: false, seatLimitHit: false };
+const exportCurrentVehicles = () => {
+    const rows = vehicles.value.map((vehicle) => ({
+        車別: vehicle.vehicle,
+        人數上限: vehicle.搭車人數上限,
+        上學管制: vehicle.上學管制 ? "是" : "否",
+        放學管制: vehicle.放學管制 ? "是" : "否",
+        上學人數: vehicle.上學搭車人數,
+        放學人數: vehicle.放學搭車人數,
+    }));
+
+    exportWorkbook(rows, "車別管理.xlsx");
+};
+
+const downloadBlankSample = () => {
+    const rows = [
+        {
+            車別: "",
+            人數上限: "",
+            上學管制: "",
+            放學管制: "",
+            上學人數: "",
+            放學人數: "",
+        },
+    ];
+
+    exportWorkbook(rows, "車別管理空白範例.xlsx");
+};
+
+const handleFileImport = async (event: Event) => {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) {
+        return;
     }
 
-    if (rowCheckState(draftRow, addedRows.value) === "invalid") {
-        rejectSeatLimitRow(draftRow);
-        return { success: false, seatLimitHit: false };
-    }
+    importBusy.value = true;
+    importMessage.value = "匯入中...";
 
-    if (
-        !canAllowDraftAdd(draftRow, addedRows.value, (item) =>
-            rowCheckState(item, addedRows.value),
-        )
-    ) {
-        if (!suppressToast) {
-            showToast("已有未完成或無效的票資料，請先修正後再新增", "warning");
+    try {
+        await loadXlsxLibrary();
+
+        const reader = new FileReader();
+        const workbook = await new Promise<any>((resolve, reject) => {
+            reader.onload = () => {
+                try {
+                    const arrayBuffer = reader.result as ArrayBuffer;
+                    const workbookObject = window.XLSX.read(arrayBuffer, {
+                        type: "array",
+                    });
+                    resolve(workbookObject);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            reader.onerror = () => reject(new Error("檔案讀取失敗"));
+            reader.readAsArrayBuffer(file);
+        });
+
+        const sheetName = workbook.SheetNames.includes("車別管理")
+            ? "車別管理"
+            : workbook.SheetNames[0];
+
+        const rawRows = window.XLSX.utils.sheet_to_json(
+            workbook.Sheets[sheetName],
+            {
+                defval: "",
+                raw: false,
+                blankrows: false,
+            },
+        );
+
+        const rows = rawRows.map((row: Record<string, unknown>) =>
+            normalizeWorkbookRow(row),
+        );
+        const validRows = rows.filter((row: any) => row.車別);
+
+        if (validRows.length === 0) {
+            throw new Error("Excel 內容沒有找到車別欄位。");
         }
-        return { success: false, seatLimitHit: false };
+
+        await axios.post("/api/vehicle-management/import", {
+            rows: validRows,
+        });
+
+        showToast(`已匯入 ${validRows.length} 筆車別資料。`, "success");
+        await fetchVehicles();
+    } catch (error) {
+        showToast(
+            error instanceof Error ? error.message : "Excel 匯入失敗。",
+            "error",
+        );
+        console.error(error);
+    } finally {
+        importBusy.value = false;
+        input.value = "";
     }
+};
 
-    const lastGeneratedDate = addedRows.value.at(-1)?.date ?? draftRow.date;
-    const nextDate = getGeneratedDateForIndex(
-        draftRow.date,
-        0,
-        lastGeneratedDate,
-    );
-
-    const nextRow = cloneRowTemplate(draftRow);
-    nextRow.date = nextDate;
-
-    const candidateRows = [...addedRows.value, nextRow];
-
-    if (rowCheckState(nextRow, candidateRows) === "invalid") {
-        nextRow.station = null;
-        nextRow.selectionState = null;
-        addedRows.value = [...addedRows.value, nextRow];
-        scrollTicketListToBottom();
-        if (!suppressToast) {
-            showToast(
-                "票數已達上限，已新增此筆並清空站別，請重新選擇",
-                "warning",
-            );
-        }
-        return { success: true, seatLimitHit: true };
-    }
-
-    addedRows.value = candidateRows;
-    scrollTicketListToBottom();
-    if (!suppressToast) {
-        showToast("已加入 1 筆", "success");
-    }
-    return { success: true, seatLimitHit: false };
-}
-
-function addSelectedRows(count) {
-    const times = Number.isFinite(Number(count))
-        ? Math.max(1, Number(count))
-        : 1;
-
-    let addedCount = 0;
-    let hitLimit = false;
-
-    for (let step = 0; step < times; step += 1) {
-        const result = addSingleRow({ suppressToast: times > 1 });
-
-        if (!result.success) {
-            break;
-        }
-
-        addedCount += 1;
-
-        if (result.seatLimitHit) {
-            hitLimit = true;
-            break;
-        }
-    }
-
-    if (times > 1) {
-        if (hitLimit) {
-            showToast(
-                `已加入 ${addedCount} 筆（票數已達上限，已清空最後一筆站別）`,
-                "warning",
-            );
-        } else if (addedCount > 0) {
-            showToast(`已加入 ${addedCount} 筆`, "success");
-        }
-    }
-}
-
-function removeAddedRow(rowId) {
-    addedRows.value = addedRows.value.filter((row) => row.id !== rowId);
-}
+onMounted(() => {
+    void fetchVehicles();
+});
 </script>
 
 <template>
-    <div class="flex h-screen flex-col overflow-hidden bg-background">
-        <div
-            v-if="toastVisible"
-            class="pointer-events-none fixed top-4 right-4 z-50 max-w-sm rounded-md border px-4 py-3 text-sm shadow-lg"
-            :class="
-                toastType === 'success'
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200'
-                    : toastType === 'warning'
-                      ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/80 dark:text-amber-200'
-                      : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/80 dark:text-red-200'
-            "
-        >
-            <div class="flex items-center gap-2">
-                <Check
-                    v-if="toastType === 'success'"
-                    class="h-4 w-4 shrink-0"
-                />
-                <AlertTriangle
-                    v-else-if="toastType === 'warning'"
-                    class="h-4 w-4 shrink-0"
-                />
-                <CircleAlert v-else class="h-4 w-4 shrink-0" />
-                <span>{{ toastMessage }}</span>
-            </div>
-        </div>
-
-        <!-- ========================================================= -->
-        <!-- Header -->
-        <!-- ========================================================= -->
-
-        <header class="shrink-0 border-b print:hidden">
-            <div class="flex h-14 items-center justify-between px-4 md:px-6">
-                <div class="flex items-center gap-2">
-                    <Ticket class="h-5 w-5" />
-
-                    <h1 class="font-semibold">臨時車票系統</h1>
-                </div>
-            </div>
-        </header>
-
-        <!-- ========================================================= -->
-        <!-- Main -->
-        <!-- ========================================================= -->
-
-        <div class="flex min-h-0 w-full flex-1 print:hidden">
-            <div class="flex min-h-0 w-1/2 flex-col">
-                <main ref="ticketListScroller" class="flex-1 overflow-auto">
-                    <div class="p-2 md:p-4">
-                        <!-- ===================================================== -->
-                        <!-- Selected Information -->
-                        <!-- ===================================================== -->
-
-                        <div v-if="addedRows.length" class="mt-2 space-y-2">
-                            <div
-                                v-for="(row, index) in addedRows"
-                                :key="row.id"
-                                class="p-0"
-                            >
-                                <div
-                                    class="grid items-center gap-2 md:grid-cols-[auto_minmax(140px,1.2fr)_minmax(120px,1fr)_minmax(140px,1fr)_minmax(220px,1.8fr)_auto_auto]"
-                                >
-                                    <div
-                                        class="flex items-center justify-center"
-                                    >
-                                        <span
-                                            class="flex h-7 w-7 items-center justify-center rounded-md border bg-muted/50 text-[11px] font-semibold text-muted-foreground"
-                                        >
-                                            {{ index + 1 }}
-                                        </span>
-                                    </div>
-
-                                    <StudentSelector
-                                        :model-value="row.student"
-                                        @update:modelValue="
-                                            (value) =>
-                                                handleStudentSelected(
-                                                    row,
-                                                    value,
-                                                )
-                                        "
-                                    />
-
-                                    <TripDateSelector v-model="row.date" />
-
-                                    <TripPeriodButtonGroup
-                                        v-model="row.periods"
-                                    />
-
-                                    <StationSelector
-                                        :model-value="row.station"
-                                        @update:modelValue="
-                                            (value) =>
-                                                handleStationSelected(
-                                                    row,
-                                                    value,
-                                                )
-                                        "
-                                        v-model:selected-periods="row.periods"
-                                        :selected-date="row.date"
-                                        :selected-rows="addedRows"
-                                        :current-row-id="row.id"
-                                    />
-
-                                    <div class="flex items-end">
-                                        <TripActionGroup
-                                            :disabled="!rowCanCheck(row)"
-                                            :date="row.date"
-                                            :periods="row.periods"
-                                            :vehicle="row.station?.vehicle"
-                                            :remaining="rowRemainingValue(row)"
-                                            :check-state="rowCheckState(row)"
-                                            :show-delete="addedRows.length > 1"
-                                            @check="handleTripCheck"
-                                            @remove="removeAddedRow(row.id)"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </main>
-
-                <div class="mt-auto shrink-0 border-t bg-background">
-                    <div
-                        class="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between md:p-4"
-                    >
-                        <div class="flex flex-wrap items-center gap-3">
-                            <div
-                                class="flex items-center gap-1 rounded-md border border-border bg-muted/30 p-0.5"
-                            >
-                                <button
-                                    v-for="option in [
-                                        {
-                                            key: 'sameDate',
-                                            label: '日期固定',
-                                        },
-                                        {
-                                            key: 'incrementDate',
-                                            label: '日期遞增',
-                                        },
-                                        {
-                                            key: 'fixedWeekday',
-                                            label: '星期固定',
-                                        },
-                                    ]"
-                                    :key="option.key"
-                                    type="button"
-                                    class="min-w-[90px] rounded-[6px] px-2.5 py-1.5 text-xs font-medium tracking-wide transition-all"
-                                    :class="
-                                        addOptions[option.key]
-                                            ? 'bg-foreground text-background shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]'
-                                            : 'text-muted-foreground hover:text-foreground'
-                                    "
-                                    @click="toggleAddOption(option.key)"
-                                >
-                                    {{ option.label }}
-                                </button>
-                            </div>
-
-                            <button
-                                type="button"
-                                class="rounded-md border px-2.5 py-1.5 text-xs font-medium tracking-wide transition-colors"
-                                :class="
-                                    addOptions.skipWeekend
-                                        ? 'border-foreground bg-foreground text-background shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]'
-                                        : 'border-muted bg-background text-muted-foreground'
-                                "
-                                @click="toggleAddOption('skipWeekend')"
-                            >
-                                避開六日
-                            </button>
-
-                            <div class="flex flex-wrap items-center gap-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    @click="addSelectedRows(1)"
-                                >
-                                    新增 1 筆
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    @click="addSelectedRows(7)"
-                                >
-                                    新增 7 筆
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    :disabled="!canClearSelection"
-                                    @click="clearSelection"
-                                >
-                                    <Trash2 class="mr-2 h-4 w-4" />
-
-                                    清除
-                                </Button>
-
-                                <Button
-                                    type="button"
-                                    :disabled="!canConfirm"
-                                    @click="confirmTicket"
-                                >
-                                    <Check class="mr-2 h-4 w-4" />
-
-                                    確定
-                                </Button>
-
-                                <Button
-                                    v-if="isTauri"
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    :disabled="isPrinting"
-                                    @click="tauriPrint"
-                                >
-                                    <Printer class="mr-2 h-4 w-4" />
-                                    {{ isPrinting ? "列印中..." : "直印" }}
-                                </Button>
-
-                                <Button
-                                    v-if="savedTickets.length"
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    :disabled="isPrinting"
-                                    @click="openPreview"
-                                >
-                                    <Ticket class="mr-2 h-4 w-4" />
-                                    預覽
-                                </Button>
-
-                                <Button
-                                    v-if="savedTickets.length"
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    :disabled="isPrinting"
-                                    @click="printPreview"
-                                >
-                                    {{ isPrinting ? "列印中..." : "直接列印" }}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="relative w-1/2 border-l bg-muted/20 p-4">
-                <div
-                    v-if="validRows.length"
-                    class="absolute top-4 right-4 w-72"
-                >
-                    <div
-                        class="rounded-lg border bg-background/90 p-3 shadow-sm backdrop-blur-sm"
-                    >
-                        <div class="mb-4 flex items-center justify-between">
-                            <span
-                                class="text-sm font-medium text-muted-foreground"
-                            >
-                                購票價格
-                            </span>
-                            <span class="font-semibold text-foreground">
-                                總計 {{ formatCurrency(totalTicketAmount) }}
-                            </span>
-                        </div>
-
-                        <div class="space-y-2">
-                            <div
-                                v-for="item in studentPriceSummary"
-                                :key="item.student"
-                                class="flex items-center justify-between gap-3"
-                            >
-                                <span class="truncate text-foreground">
-                                    {{ item.student }}
-                                </span>
-                                <span class="shrink-0 font-medium tabular-nums">
-                                    {{ formatCurrency(item.total) }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div
-                    v-else
-                    class="flex h-full items-center justify-center text-sm text-muted-foreground"
-                >
-                    尚未有可計算票價
-                </div>
-            </div>
-        </div>
-
-        <div
-            v-if="previewVisible && savedTickets.length"
-            class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-        >
+    <div>
+        <!-- Toast（Teleport 到 body，避免被上層 layout 裁切或遮蓋） -->
+        <Teleport to="body">
             <div
-                class="flex h-[90vh] w-full max-w-90 flex-col overflow-hidden rounded-xl border bg-white shadow-2xl"
+                v-if="toastVisible"
+                class="pointer-events-none fixed top-4 right-4 z-[100] max-w-sm rounded-md border px-4 py-3 text-sm shadow-lg"
+                :class="
+                    toastType === 'success'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-200'
+                        : toastType === 'warning'
+                          ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950/80 dark:text-amber-200'
+                          : 'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/80 dark:text-red-200'
+                "
             >
-                <div
-                    class="flex items-center justify-between border-b px-4 py-3 shrink-0"
+                <div class="flex items-center gap-2">
+                    <Check
+                        v-if="toastType === 'success'"
+                        class="h-4 w-4 shrink-0"
+                    />
+                    <AlertTriangle
+                        v-else-if="toastType === 'warning'"
+                        class="h-4 w-4 shrink-0"
+                    />
+                    <CircleAlert v-else class="h-4 w-4 shrink-0" />
+                    <span>{{ toastMessage }}</span>
+                </div>
+            </div>
+        </Teleport>
+
+        <div
+            class="mb-6 flex flex-col gap-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200 md:flex-row md:items-center md:justify-between"
+        >
+            <div>
+                <p
+                    class="text-sm font-medium uppercase tracking-[0.22em] text-slate-500"
                 >
-                    <div>
-                        <h3 class="text-lg font-semibold text-slate-900">
-                            臨時車票預覽
-                        </h3>
-                        <p class="text-sm text-slate-500">
-                            共 {{ savedTickets.length }} 筆
-                        </p>
-                    </div>
+                    車輛設定
+                </p>
+                <h1 class="mt-2 text-2xl font-bold">車別管理</h1>
+            </div>
 
-                    <div class="flex items-center gap-2">
-                        <Button
-                            v-if="isTauri"
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            :disabled="isPrinting"
-                            @click="directPrint"
-                        >
-                            {{ isPrinting ? "列印中..." : "直印" }}
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            :disabled="isPrinting"
-                            @click="printPreview"
-                        >
-                            {{ isPrinting ? "列印中..." : "直接列印" }}
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            @click="closePreview"
-                        >
-                            關閉預覽
-                        </Button>
-                    </div>
-                </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700"
+                    @click="exportCurrentVehicles"
+                >
+                    匯出 Excel
+                </button>
 
-                <div class="flex-1 overflow-auto bg-slate-100">
-                    <iframe
-                        v-if="previewUrl"
-                        :src="previewUrl"
-                        class="w-full h-full border-0"
-                        frameborder="0"
-                    ></iframe>
-                </div>
+                <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                    @click="downloadBlankSample"
+                >
+                    下載空白範例
+                </button>
+
+                <label
+                    class="inline-flex cursor-pointer items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                    :class="{
+                        'pointer-events-none opacity-60': importBusy,
+                    }"
+                >
+                    <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        class="hidden"
+                        @change="handleFileImport"
+                        :disabled="importBusy"
+                    />
+                    {{ importBusy ? "匯入中..." : "匯入 Excel" }}
+                </label>
             </div>
         </div>
 
-        <!-- 列印專用區域 -->
-        <div v-if="savedTickets.length" class="hidden print:block p-4">
-            <Tickets :tickets="savedTickets" />
+        <div
+            v-if="loading"
+            class="flex items-center justify-center rounded-2xl bg-white p-12 shadow-sm ring-1 ring-slate-200"
+        >
+            <p class="text-slate-500">載入車輛資料中...</p>
         </div>
 
-        <!-- ========================================================= -->
-        <!-- Footer -->
-        <!-- ========================================================= -->
+        <div
+            v-else-if="vehicles.length === 0"
+            class="flex items-center justify-center rounded-2xl bg-white p-12 shadow-sm ring-1 ring-slate-200"
+        >
+            <p class="text-slate-500">目前沒有車輛資料。</p>
+        </div>
+
+        <div v-else class="flex gap-4">
+            <!-- 嘉義縣市 -->
+            <div class="min-w-0 flex-1 border">
+                <div
+                    class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700"
+                >
+                    <div class="text-left">車別</div>
+                    <div>人數上限</div>
+                    <div>上學人數</div>
+                    <div>放學人數</div>
+                    <div>上學管制</div>
+                    <div>放學管制</div>
+                </div>
+                <div
+                    v-if="categorizedVehicles.chiayi.length === 0"
+                    class="p-6 text-sm text-slate-500"
+                >
+                    無資料
+                </div>
+                <div v-else>
+                    <div
+                        v-for="vehicle in categorizedVehicles.chiayi"
+                        :key="vehicle.vehicle"
+                        class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-center last:border-b-0"
+                    >
+                        <div
+                            class="truncate text-left font-medium text-slate-800"
+                        >
+                            {{ vehicle.vehicle }}
+                        </div>
+                        <div class="flex justify-center">
+                            <input
+                                :value="vehicle.搭車人數上限"
+                                type="number"
+                                min="0"
+                                max="99"
+                                class="w-full max-w-14 rounded-lg border border-slate-300 px-1 py-1 text-center text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                                @input="
+                                    handleNumberInput(
+                                        vehicle,
+                                        '搭車人數上限',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <input
+                                :value="vehicle.上學搭車人數"
+                                type="number"
+                                min="0"
+                                max="99"
+                                class="w-full max-w-14 rounded-lg border border-slate-300 px-1 py-1 text-center text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                                @input="
+                                    handleNumberInput(
+                                        vehicle,
+                                        '上學搭車人數',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <input
+                                :value="vehicle.放學搭車人數"
+                                type="number"
+                                min="0"
+                                max="99"
+                                class="w-full max-w-14 rounded-lg border border-slate-300 px-1 py-1 text-center text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                                @input="
+                                    handleNumberInput(
+                                        vehicle,
+                                        '放學搭車人數',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <Switch
+                                :model-value="vehicle.上學管制"
+                                @update:model-value="
+                                    handleSwitchChange(
+                                        vehicle,
+                                        '上學管制',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <Switch
+                                :model-value="vehicle.放學管制"
+                                @update:model-value="
+                                    handleSwitchChange(
+                                        vehicle,
+                                        '放學管制',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 其他 -->
+            <div class="min-w-0 flex-1 border">
+                <div
+                    class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700"
+                >
+                    <div class="text-left">車別</div>
+                    <div>人數上限</div>
+                    <div>上學人數</div>
+                    <div>放學人數</div>
+                    <div>上學管制</div>
+                    <div>放學管制</div>
+                </div>
+                <div
+                    v-if="categorizedVehicles.others.length === 0"
+                    class="p-6 text-sm text-slate-500"
+                >
+                    無資料
+                </div>
+                <div v-else>
+                    <div
+                        v-for="vehicle in categorizedVehicles.others"
+                        :key="vehicle.vehicle"
+                        class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 px-3 py-1.5 text-center last:border-b-0"
+                    >
+                        <div
+                            class="truncate text-left font-medium text-slate-800"
+                        >
+                            {{ vehicle.vehicle }}
+                        </div>
+                        <div class="flex justify-center">
+                            <input
+                                :value="vehicle.搭車人數上限"
+                                type="number"
+                                min="0"
+                                max="99"
+                                class="w-full max-w-14 rounded-lg border border-slate-300 px-1 py-1 text-center text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                                @input="
+                                    handleNumberInput(
+                                        vehicle,
+                                        '搭車人數上限',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <input
+                                :value="vehicle.上學搭車人數"
+                                type="number"
+                                min="0"
+                                max="99"
+                                class="w-full max-w-14 rounded-lg border border-slate-300 px-1 py-1 text-center text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                                @input="
+                                    handleNumberInput(
+                                        vehicle,
+                                        '上學搭車人數',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <input
+                                :value="vehicle.放學搭車人數"
+                                type="number"
+                                min="0"
+                                max="99"
+                                class="w-full max-w-14 rounded-lg border border-slate-300 px-1 py-1 text-center text-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                                @input="
+                                    handleNumberInput(
+                                        vehicle,
+                                        '放學搭車人數',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <Switch
+                                :model-value="vehicle.上學管制"
+                                @update:model-value="
+                                    handleSwitchChange(
+                                        vehicle,
+                                        '上學管制',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                        <div class="flex justify-center">
+                            <Switch
+                                :model-value="vehicle.放學管制"
+                                @update:model-value="
+                                    handleSwitchChange(
+                                        vehicle,
+                                        '放學管制',
+                                        $event,
+                                    )
+                                "
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </template>
