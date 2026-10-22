@@ -744,6 +744,16 @@ Route::post('/temporary-tickets', function () {
             '站別' => $record->站別,
             'barcode' => $record->barcode,
             '金額' => $record->金額,
+            'student' => [
+                '學號' => $record->學號,
+                '班級' => $record->班級,
+                '座號' => $record->座號,
+                '姓名' => $record->姓名,
+            ],
+            'station' => [
+                'vehicle' => $record->車別,
+                'station' => $record->站別,
+            ],
         ];
     }
 

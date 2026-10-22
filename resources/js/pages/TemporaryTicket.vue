@@ -5,13 +5,15 @@ import {
     AlertTriangle,
     Check,
     CircleAlert,
+    Printer,
     Ticket,
     Trash2,
 } from "lucide-vue-next";
-import { router } from '@inertiajs/vue3';
+import { router } from "@inertiajs/vue3";
 
 import StudentSelector from "@/components/StudentSelector.vue";
 import StationSelector from "@/components/StationSelector.vue";
+import Tickets from "@/components/Tickets.vue";
 import TripActionGroup from "@/components/TripActionGroup.vue";
 import TripDateSelector from "@/components/TripDateSelector.vue";
 import TripPeriodButtonGroup from "@/components/TripPeriodButtonGroup.vue";
@@ -35,6 +37,7 @@ const selectedStudent = ref(null);
 const selectedStation = ref(null);
 const selectedDate = ref(formatDateValue(new Date()));
 const selectedPeriods = ref(["放學"]);
+const isPrinting = ref(false);
 
 const createBlankRow = () => ({
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -141,6 +144,161 @@ const selectionSummary = computed(() => {
     return `${studentDisplayName.value} · ${selectedStation.value.station}`;
 });
 
+const savedTickets = ref([]);
+const previewVisible = ref(false);
+const previewUrl = ref("/ticket-print");
+
+const isTauri = computed(() => {
+    return typeof window !== "undefined" && window.__TAURI__;
+});
+
+const openPreview = () => {
+    previewVisible.value = true;
+};
+
+const closePreview = () => {
+    previewVisible.value = false;
+};
+
+const printPreview = () => {
+    // 直接列印 /ticket-print 頁面
+    showToast("正在開啟列印預覽...", "info");
+    window.open("/ticket-print", "_blank");
+};
+
+const performSilentPrint = async () => {
+    isPrinting.value = true;
+    try {
+        console.log("開始靜默列印...");
+        console.log("環境檢查 - isTauri:", isTauri.value);
+        console.log(
+            "環境檢查 - __TAURI__:",
+            typeof window !== "undefined" ? window.__TAURI__ : "N/A",
+        );
+
+        showToast("正在準備列印...", "info");
+
+        // 檢查是否真的在 Tauri 環境中
+        if (!isTauri.value) {
+            throw new Error("靜默列印功能僅在 Tauri 桌面應用中可用");
+        }
+
+        showToast("正在載入印表機...", "info");
+
+        // 動態導入 tauri-plugin-printer v2
+        const { getPrinters, printHtml } = await import("tauri-plugin-printer");
+
+        console.log("Plugin 導入成功");
+
+        // 獲取系統印表機列表 - v2 API returns array directly
+        const printers = await getPrinters();
+        console.log("印表機列表:", printers);
+
+        if (!printers || printers.length === 0) {
+            throw new Error("未找到可用的印表機");
+        }
+
+        showToast("正在生成列印內容...", "info");
+
+        // 獲取票據頁面的 HTML 內容
+        const response = await fetch("/ticket-print");
+        const htmlContent = await response.text();
+
+        console.log("HTML 內容長度:", htmlContent.length);
+        console.log("使用印表機:", printers[0].name);
+
+        showToast("正在發送到印表機...", "info");
+
+        // 使用 printHtml v2 API 進行靜默列印
+        // html2canvas-pro 支援 oklch 顏色，不會出現錯誤
+        await printHtml(htmlContent, {
+            name: printers[0].name,
+            page_size: { width: 800, height: 1200 },
+        });
+
+        console.log("靜默列印成功");
+        showToast("列印已發送到印表機", "success");
+    } catch (error) {
+        console.error("靜默列印失敗:", error);
+        const errorMessage = error?.message || String(error);
+        console.error("錯誤詳情:", errorMessage);
+
+        // 如果是 plugin 錯誤，自動 fallback 到打開列印視窗
+        if (
+            errorMessage.includes("Plugin not found") ||
+            errorMessage.includes("not allowed")
+        ) {
+            console.log("靜默列印不可用，fallback 到打開列印視窗");
+            showToast("靜默列印不可用，改用標準列印", "info");
+
+            // 打開列印視窗並自動列印
+            const printWindow = window.open(
+                "/ticket-print?autoPrint=true",
+                "_blank",
+            );
+            if (printWindow) {
+                printWindow.onload = () => {
+                    setTimeout(() => {
+                        printWindow.print();
+                    }, 1500);
+                };
+            }
+        } else {
+            showToast("列印失敗: " + errorMessage, "error");
+            throw error; // 重新拋出錯誤，讓上層處理
+        }
+    } finally {
+        isPrinting.value = false;
+    }
+};
+
+const directPrint = async () => {
+    isPrinting.value = true;
+    try {
+        if (!isTauri.value) {
+            // 非 Tauri 環境，打開列印頁面並自動列印
+            showToast("正在開啟列印視窗...", "info");
+            const printWindow = window.open(
+                "/ticket-print?autoPrint=true",
+                "_blank",
+            );
+            if (printWindow) {
+                printWindow.onload = () => {
+                    setTimeout(() => {
+                        printWindow.print();
+                    }, 1500);
+                };
+            }
+            return;
+        }
+
+        // Tauri 環境，使用靜默列印
+        await performSilentPrint();
+    } catch (error) {
+        console.error("直印失敗:", error);
+        const errorMessage = error?.message || String(error);
+        showToast("直印失敗: " + errorMessage, "error");
+    } finally {
+        isPrinting.value = false;
+    }
+};
+
+const tauriPrint = async () => {
+    try {
+        if (!isTauri.value) {
+            console.error("Tauri列印功能僅在 Tauri 環境下可用");
+            return;
+        }
+
+        // Tauri 環境，使用靜默列印
+        await performSilentPrint();
+    } catch (error) {
+        console.error("Tauri列印失敗:", error);
+        const errorMessage = error?.message || String(error);
+        alert("Tauri列印失敗: " + errorMessage);
+    }
+};
+
 const confirmTicket = async () => {
     const tickets = addedRows.value
         .filter((row) => !isBlankRow(row))
@@ -163,9 +321,22 @@ const confirmTicket = async () => {
         });
 
         savedTickets.value = data.tickets ?? [];
-        previewVisible.value = true;
         showToast(`已儲存 ${data.saved ?? tickets.length} 筆資料`, "success");
         resetToFreshRow();
+
+        // 如果在 Tauri 環境下，嘗試使用靜默列印
+        if (isTauri.value) {
+            try {
+                await performSilentPrint();
+            } catch (printError) {
+                console.error("靜默列印失敗，fallback 到預覽:", printError);
+                // 如果靜默列印失敗，打開預覽
+                openPreview();
+            }
+        } else {
+            // 非 Tauri 環境，打開預覽
+            openPreview();
+        }
     } catch (error) {
         const message =
             error?.response?.data?.message ||
@@ -173,47 +344,6 @@ const confirmTicket = async () => {
             "儲存失敗";
 
         showToast(message, "error");
-    }
-};
-
-const savedTickets = ref([]);
-const previewVisible = ref(false);
-const previewUrl = ref('');
-
-const openPreview = () => {
-    if (savedTickets.value.length) {
-        // 將 tickets 數據編碼並傳遞給 TicketPrint 頁面
-        const ticketsJson = encodeURIComponent(JSON.stringify(savedTickets.value));
-        previewUrl.value = `/ticket-print?tickets=${ticketsJson}`;
-        previewVisible.value = true;
-    }
-};
-
-const closePreview = () => {
-    previewVisible.value = false;
-};
-
-const printPreview = () => {
-    // 直接列印
-    window.print();
-};
-
-const directPrint = async () => {
-    try {
-        // 檢查是否在 Tauri 環境
-        if (window.__TAURI__) {
-            const { invoke } = window.__TAURI__.core;
-            // 使用相同的分頁邏輯
-            const pages = buildTicketPages(savedTickets.value);
-            // 呼叫 Tauri command 進行直印，傳送分頁後的數據
-            await invoke('print_tickets', { pages });
-        } else {
-            // 非 Tauri 環境，顯示提示
-            alert('直印功能僅在 Tauri 環境下可用');
-        }
-    } catch (error) {
-        console.error('直印失敗:', error);
-        alert('直印失敗: ' + error.message);
     }
 };
 
@@ -969,10 +1099,23 @@ function removeAddedRow(rowId) {
                                 </Button>
 
                                 <Button
+                                    v-if="isTauri"
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    :disabled="isPrinting"
+                                    @click="tauriPrint"
+                                >
+                                    <Printer class="mr-2 h-4 w-4" />
+                                    {{ isPrinting ? "列印中..." : "直印" }}
+                                </Button>
+
+                                <Button
                                     v-if="savedTickets.length"
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    :disabled="isPrinting"
                                     @click="openPreview"
                                 >
                                     <Ticket class="mr-2 h-4 w-4" />
@@ -984,9 +1127,10 @@ function removeAddedRow(rowId) {
                                     type="button"
                                     variant="outline"
                                     size="sm"
+                                    :disabled="isPrinting"
                                     @click="printPreview"
                                 >
-                                    直接列印
+                                    {{ isPrinting ? "列印中..." : "直接列印" }}
                                 </Button>
                             </div>
                         </div>
@@ -1060,20 +1204,23 @@ function removeAddedRow(rowId) {
 
                     <div class="flex items-center gap-2">
                         <Button
+                            v-if="isTauri"
                             type="button"
                             variant="outline"
                             size="sm"
+                            :disabled="isPrinting"
                             @click="directPrint"
                         >
-                            直印
+                            {{ isPrinting ? "列印中..." : "直印" }}
                         </Button>
                         <Button
                             type="button"
                             variant="outline"
                             size="sm"
+                            :disabled="isPrinting"
                             @click="printPreview"
                         >
-                            直接列印
+                            {{ isPrinting ? "列印中..." : "直接列印" }}
                         </Button>
                         <Button
                             type="button"

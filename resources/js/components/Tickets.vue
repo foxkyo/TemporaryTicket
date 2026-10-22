@@ -27,7 +27,6 @@ function renderBarcodes() {
             if (canvas && page.barcode) {
                 try {
                     JsBarcode(canvas, page.barcode, {
-                        format: 'CODE39',
                         displayValue: false,
                         width: 2,
                         height: 40,

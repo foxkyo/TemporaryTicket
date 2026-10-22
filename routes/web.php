@@ -9,4 +9,4 @@ Route::inertia('/tts', 'TemporaryTicket')->name('temporary-ticket');
 
 Route::inertia('/vehicle-initial-counts', 'VehicleInitialCounts')->name('vehicle-initial-counts');
 
-Route::get('/ticket-print', TicketPrintController::class)->name('ticket-print');
+Route::match(['get', 'post'], '/ticket-print', TicketPrintController::class)->name('ticket-print');

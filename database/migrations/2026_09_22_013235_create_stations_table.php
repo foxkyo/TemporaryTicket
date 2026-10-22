@@ -20,8 +20,7 @@ return new class extends Migration
 
             $table->unsignedInteger('上學人數')->default(0);
             $table->unsignedInteger('放學人數')->default(0);
-            $table->unsignedInteger('已繳款人數')->default(0);
-            $table->unsignedInteger('未繳款人數')->default(0);
+
         });
     }
 

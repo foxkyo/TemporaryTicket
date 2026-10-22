@@ -2,10 +2,10 @@
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
     "productName": "Temporary Ticketing System",
     "version": "0.1.0",
-    "identifier": "com.tauri.dev",
+    "identifier": "app.tts.dev",
     "build": {
         "frontendDist": "../dist",
-        "devUrl": "http://localhost:80",
+        "devUrl": "https://tts.test/tts",
         "beforeDevCommand": "npm run dev",
         "beforeBuildCommand": "npm run build"
     },

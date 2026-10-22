@@ -1,18 +1,19 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue';
-import { UserRound } from 'lucide-vue-next';
+import { computed, onMounted, ref } from "vue";
+import { UserRound } from "lucide-vue-next";
 
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
-} from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(["update:modelValue"]);
 
 const props = defineProps({
     modelValue: {
@@ -24,11 +25,11 @@ const props = defineProps({
 const studentModalOpen = ref(false);
 
 const studentsLoading = ref(false);
-const studentsError = ref('');
+const studentsError = ref("");
 
 const grades = ref([]);
-const selectedGrade = ref('');
-const selectedClass = ref('');
+const selectedGrade = ref("");
+const selectedClass = ref("");
 
 /*
 |--------------------------------------------------------------------------
@@ -42,13 +43,13 @@ const loadStudents = async () => {
     }
 
     studentsLoading.value = true;
-    studentsError.value = '';
+    studentsError.value = "";
 
     try {
-        const response = await fetch('/api/students');
+        const response = await fetch("/api/students");
 
         if (!response.ok) {
-            throw new Error('學生資料載入失敗');
+            throw new Error("學生資料載入失敗");
         }
 
         const result = await response.json();
@@ -63,7 +64,7 @@ const loadStudents = async () => {
         console.error(error);
 
         studentsError.value =
-            error instanceof Error ? error.message : '學生資料載入失敗';
+            error instanceof Error ? error.message : "學生資料載入失敗";
     } finally {
         studentsLoading.value = false;
     }
@@ -145,7 +146,7 @@ const openModal = async () => {
             );
 
             selectedClass.value =
-                targetClass?.class ?? grade.classes?.[0]?.class ?? '';
+                targetClass?.class ?? grade.classes?.[0]?.class ?? "";
         }
 
         return;
@@ -173,7 +174,7 @@ const openModal = async () => {
 const changeGrade = (grade) => {
     selectedGrade.value = grade;
 
-    selectedClass.value = currentGrade.value?.classes?.[0]?.class ?? '';
+    selectedClass.value = currentGrade.value?.classes?.[0]?.class ?? "";
 };
 
 /*
@@ -193,7 +194,7 @@ const changeClass = (className) => {
 */
 
 const selectStudent = (student) => {
-    emit('update:modelValue', student);
+    emit("update:modelValue", student);
 
     studentModalOpen.value = false;
 };
@@ -243,6 +244,9 @@ onMounted(() => {
 
                 <DialogHeader class="shrink-0 border-b px-6 py-4">
                     <DialogTitle> 選取學生 </DialogTitle>
+                    <DialogDescription>
+                        請選擇年級、班級及學生
+                    </DialogDescription>
                 </DialogHeader>
 
                 <!-- Body -->
