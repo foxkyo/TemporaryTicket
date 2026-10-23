@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, nextTick, ref, watch } from "vue";
 import { usePage } from "@inertiajs/vue3";
+import { invoke } from "@tauri-apps/api/core";
 import { buildTicketPages } from "@/lib/ticketPageGroups.js";
 import JsBarcode from "jsbarcode";
 import Tickets from "@/components/Tickets.vue";
@@ -47,17 +48,21 @@ function renderBarcodes() {
 
 async function silentPrint() {
     try {
-        // 動態導入 tauri-plugin-printer v2
-        const { printHtml } = await import("tauri-plugin-printer");
-
-        // 獲取整個 HTML 內容
-        const htmlContent = document.documentElement.outerHTML;
-
-        // 使用 tauri-plugin-printer v2 進行靜默列印
-        await printHtml(htmlContent, {
-            page_size: { width: 800, height: 1200 },
+        // 將票據內容轉為文本格式
+        let text = "";
+        tickets.value.forEach((ticket, index) => {
+            text += `=== 票據 ${index + 1} ===\n`;
+            text += `學生: ${ticket.student || ""}\n`;
+            text += `站別: ${ticket.station || ""}\n`;
+            text += `日期: ${ticket.date || ""}\n`;
+            text += `時段: ${ticket.periods?.join(", ") || ""}\n`;
+            text += `金額: ${formatPrice(ticket.amount)}\n`;
+            text += `條碼: ${ticket.barcode || ""}\n`;
+            text += `\n`;
         });
 
+        // 調用 Rust 靜默列印
+        await invoke("silent_print", { text });
         console.log("列印成功");
     } catch (error) {
         console.error("Tauri 靜默列印失敗:", error);

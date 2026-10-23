@@ -329,11 +329,6 @@ const handleSwitchChange = (
     const originalValue = vehicle[field];
     const nextValue = Boolean(value);
 
-    // 值沒有變化（例如兩種事件同時觸發）時不重複儲存
-    if (originalValue === nextValue) {
-        return;
-    }
-
     vehicle[field] = nextValue;
 
     void saveVehicle(vehicle, field, nextValue).then((success) => {
@@ -597,7 +592,7 @@ onMounted(() => {
 
         <div v-else class="flex gap-4">
             <!-- 嘉義縣市 -->
-            <div class="min-w-0 flex-1 border bg-white">
+            <div class="min-w-0 flex-1 border">
                 <div
                     class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700"
                 >
@@ -676,14 +671,6 @@ onMounted(() => {
                         <div class="flex justify-center">
                             <Switch
                                 :model-value="vehicle.上學管制"
-                                :checked="vehicle.上學管制"
-                                @update:checked="
-                                    handleSwitchChange(
-                                        vehicle,
-                                        '上學管制',
-                                        $event,
-                                    )
-                                "
                                 @update:model-value="
                                     handleSwitchChange(
                                         vehicle,
@@ -696,14 +683,6 @@ onMounted(() => {
                         <div class="flex justify-center">
                             <Switch
                                 :model-value="vehicle.放學管制"
-                                :checked="vehicle.放學管制"
-                                @update:checked="
-                                    handleSwitchChange(
-                                        vehicle,
-                                        '放學管制',
-                                        $event,
-                                    )
-                                "
                                 @update:model-value="
                                     handleSwitchChange(
                                         vehicle,
@@ -718,7 +697,7 @@ onMounted(() => {
             </div>
 
             <!-- 其他 -->
-            <div class="min-w-0 flex-1 border bg-white">
+            <div class="min-w-0 flex-1 border">
                 <div
                     class="grid grid-cols-[96px_repeat(5,minmax(0,1fr))] items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-center text-sm font-semibold text-slate-700"
                 >
@@ -797,14 +776,6 @@ onMounted(() => {
                         <div class="flex justify-center">
                             <Switch
                                 :model-value="vehicle.上學管制"
-                                :checked="vehicle.上學管制"
-                                @update:checked="
-                                    handleSwitchChange(
-                                        vehicle,
-                                        '上學管制',
-                                        $event,
-                                    )
-                                "
                                 @update:model-value="
                                     handleSwitchChange(
                                         vehicle,
@@ -817,14 +788,6 @@ onMounted(() => {
                         <div class="flex justify-center">
                             <Switch
                                 :model-value="vehicle.放學管制"
-                                :checked="vehicle.放學管制"
-                                @update:checked="
-                                    handleSwitchChange(
-                                        vehicle,
-                                        '放學管制',
-                                        $event,
-                                    )
-                                "
                                 @update:model-value="
                                     handleSwitchChange(
                                         vehicle,

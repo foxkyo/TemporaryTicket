@@ -1,1 +1,94 @@
-<!doctype html><html><head><meta charset="utf-8"><title>Temporary Ticketing System</title></head><body></body></html>
+<!doctype html>
+<html lang="zh-TW">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Temporary Ticketing System</title>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                font-family:
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+                background: #f3f4f6;
+            }
+            .loading {
+                text-align: center;
+                color: #6b7280;
+            }
+            .spinner {
+                border: 3px solid #e5e7eb;
+                border-top: 3px solid #3b82f6;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 16px;
+            }
+            @keyframes spin {
+                0% {
+                    transform: rotate(0deg);
+                }
+                100% {
+                    transform: rotate(360deg);
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="loading">
+            <div class="spinner"></div>
+            <div id="loading-text">載入中...</div>
+            <div
+                id="debug-info"
+                style="margin-top: 10px; font-size: 12px; color: #999"
+            ></div>
+        </div>
+        <script>
+            // 從 Tauri 獲取配置的 URL
+            (async () => {
+                try {
+                    // 等待 Tauri API 載入
+                    if (window.__TAURI__) {
+                        const { invoke } = window.__TAURI__.core;
+                        const url = await invoke("get_app_url");
+                        console.log("Configured URL:", url);
+                        document.getElementById("debug-info").textContent =
+                            "載入 URL: " + url;
+                        // 延遲 2 秒以便查看調試信息
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 2000),
+                        );
+                        if (url) {
+                            // 清除所有可能的緩存
+                            window.location.replace(url);
+                        } else {
+                            document.body.innerHTML =
+                                '<div class="loading">無法載入應用程式 URL</div>';
+                        }
+                    } else {
+                        // 如果不在 Tauri 環境中，使用預設 URL
+                        console.log(
+                            "Not in Tauri environment, using default URL",
+                        );
+                        document.getElementById("debug-info").textContent =
+                            "使用預設 URL: https://tts.test/tts";
+                        window.location.replace("https://tts.test/tts");
+                    }
+                } catch (error) {
+                    document.body.innerHTML =
+                        '<div class="loading">載入失敗: ' +
+                        error.message +
+                        "</div>";
+                    console.error("Error:", error);
+                }
+            })();
+        </script>
+    </body>
+</html>
